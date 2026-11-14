@@ -526,6 +526,11 @@ function verifyTask6() {
       'MimiDatePickerSheet.swift: remove +/- time steppers — use gray HH:mm capsule + wheel overlay'
     );
   }
+  if (!/#if\s+os\(iOS\)[\s\S]{0,120}datePickerStyle\(\.wheel\)/.test(datePickerSheet)) {
+    throw new Error(
+      'MimiDatePickerSheet.swift: datePickerStyle(.wheel) must be guarded with #if os(iOS) so macOS swift test compiles'
+    );
+  }
   assertContains(billDetailCategory, 'MimiDateFieldButton', 'BillDetailSheetView.swift');
   assertContains(billDetailCategory, 'title: "日期"', 'BillDetailSheetView.swift');
   assertContains(recordSheet, 'MimiDatePickerSheet', 'RecordAndAISheetView.swift');

@@ -366,7 +366,9 @@ public struct MimiDatePickerSheet: View {
                     selection: $draft,
                     displayedComponents: [.hourAndMinute]
                 )
+                #if os(iOS)
                 .datePickerStyle(.wheel)
+                #endif
                 .labelsHidden()
                 .environment(\.locale, Locale(identifier: "zh_CN"))
                 .frame(maxWidth: .infinity)
