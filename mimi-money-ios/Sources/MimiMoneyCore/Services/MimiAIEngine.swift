@@ -154,17 +154,12 @@ public final class MimiAIEngine: ObservableObject {
         preferredAccountName: String? = nil,
         timeZone: TimeZone = .current
     ) -> [ParsedDraftBill] {
-        let splitPattern = #"(?<![0-9\-/:：年月.])([0-9]+(?:\.[0-9]{1,2})?(?:\s*(?:元|块|令吉))?)(?![0-9年月日号点时分天周杯个碗份次张件人笔:/：%\-])(?=\s+(?!年|月|日|号|点|时|分|天前|AM|PM|am|pm)[^\s0-9\.])"#
-        let normalized = input.replacingOccurrences(
-            of: splitPattern,
-            with: "$1,",
-            options: .regularExpression
-        )
         let separators = CharacterSet(charactersIn: "，,；;\n")
-        let rawClauses = normalized
+        let rawClauses = input
             .components(separatedBy: separators)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+            .flatMap { splitClauseOnAmounts($0, now: now, timeZone: timeZone) }
 
         var drafts: [ParsedDraftBill] = []
         var carryDate = now
@@ -505,6 +500,49 @@ public final class MimiAIEngine: ObservableObject {
     }
 
     // MARK: - Natural Language Parsing Helpers
+
+    private func splitClauseOnAmounts(_ segment: String, now: Date, timeZone: TimeZone) -> [String] {
+        let splitPattern = #"(?<![0-9\-/:：年月.])([0-9]+(?:\.[0-9]{1,2})?(?:\s*(?:元|块|令吉))?)(?![0-9年月日号点时分天周杯个碗份次张件人笔:/：%\-])(?=\s+(?!年|月|日|号|点|时|分|天前|AM|PM|am|pm)[^\s0-9\.])"#
+        guard let regex = try? NSRegularExpression(pattern: splitPattern) else {
+            return [segment]
+        }
+        let nsRange = NSRange(segment.startIndex..<segment.endIndex, in: segment)
+        let matches = regex.matches(in: segment, range: nsRange)
+        guard !matches.isEmpty else { return [segment] }
+
+        var clauses: [String] = []
+        var clauseStart = segment.startIndex
+        let trimSet = CharacterSet.whitespacesAndNewlines
+            .union(.punctuationCharacters)
+            .union(.decimalDigits)
+        for match in matches {
+            guard let range = Range(match.range, in: segment), range.lowerBound >= clauseStart else {
+                continue
+            }
+            let prefix = String(segment[clauseStart..<range.lowerBound])
+            let dateStripped = MimiNaturalLanguageDateParser
+                .parse(in: prefix, now: now, timeZone: timeZone)
+                .strippedText
+            let cleanedPrefix = dateStripped
+                .replacingOccurrences(of: #"(?i)\b(?:RM|MYR)\b|[¥$]"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: trimSet)
+            guard !cleanedPrefix.isEmpty else {
+                // Keep leading brand numbers (e.g. "99 Speedmart 18.90") attached to their item.
+                continue
+            }
+            let piece = String(segment[clauseStart..<range.upperBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !piece.isEmpty {
+                clauses.append(piece)
+            }
+            clauseStart = range.upperBound
+        }
+        let tail = String(segment[clauseStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty {
+            clauses.append(tail)
+        }
+        return clauses.isEmpty ? [segment] : clauses
+    }
 
     private struct AmountCandidate {
         let value: Double
