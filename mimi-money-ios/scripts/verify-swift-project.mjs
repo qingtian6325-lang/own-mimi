@@ -284,6 +284,8 @@ function verifyTask3() {
   checkBalancedBraces(helpers, 'BookkeepingAIHelpers.swift');
   for (const sym of [
     'public enum LocalBookkeepingAnswerer',
+    'MimiNaturalLanguageDateParser',
+    'Asia/Kuala_Lumpur',
     '咪咪记账',
     '标准收入分类如下',
     '另外你还自建了「家用」「车贷」两个支出分类和「别人转账」这个收入分类',
@@ -462,7 +464,8 @@ function verifyTask6() {
     'presentationContentInteraction(.scrolls)',
     'BookkeepingSheetSwipePolicy',
     'tabViewStyle(.page',
-    'presentationDetents([.large])'
+    'presentationDetents([.large])',
+    'chatBottomAnchorID'
   ]) {
     assertContains(recordSheet, label, 'RecordAndAISheetView.swift');
   }
@@ -558,7 +561,8 @@ function verifyTask6() {
     '任何事情都能问我',
     '手动记账',
     '咪咪思考中',
-    'exampleQuestions'
+    'exampleQuestions',
+    'bottomAnchorID'
   ]) {
     assertContains(aiOverlay, label, 'MimiAIAskOverlayView.swift');
   }

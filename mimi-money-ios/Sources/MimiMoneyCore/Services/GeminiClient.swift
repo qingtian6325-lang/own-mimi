@@ -228,23 +228,50 @@ accountDisplayName: accountName,
 targetAccountId: resolvedTargetId,
 targetAccountDisplayName: resolvedTargetName,
 merchantOrNote: note.isEmpty ? counterparty : note,
-occurredAt: GeminiBillDTO.parseOccurredAt(occurredAt) ?? now
+occurredAt: GeminiBillDTO.parseOccurredAt(occurredAt, now: now) ?? now
 )
 }
 
-public static func parseOccurredAt(_ text: String) -> Date? {
+public static func parseOccurredAt(_ text: String, now: Date = Date(), timeZone: TimeZone = .current) -> Date? {
 let trimmed = text.trimmingCharacters(in:.whitespacesAndNewlines)
 guard !trimmed.isEmpty else { return nil}
 let formatter = DateFormatter()
 formatter.locale = Locale(identifier: "en_US_POSIX")
-formatter.timeZone = TimeZone.current
-for format in ["yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy/MM/dd HH:mm", "dd/MM/yyyy HH:mm", "dd/MM/yyyy HH:mm:ss"] {
+formatter.timeZone = timeZone
+let formatsWithTime = [
+"yyyy-MM-dd HH:mm",
+"yyyy-MM-dd HH:mm:ss",
+"yyyy/MM/dd HH:mm",
+"yyyy/MM/dd HH:mm:ss",
+"dd/MM/yyyy HH:mm",
+"dd/MM/yyyy HH:mm:ss",
+"dd-MM-yyyy HH:mm",
+"dd-MM-yyyy HH:mm:ss",
+"yyyy-MM-dd'T'HH:mm:ss",
+"yyyy-MM-dd'T'HH:mm",
+"d MMM yyyy HH:mm",
+"dd MMM yyyy HH:mm",
+"d MMM yyyy, HH:mm",
+"dd MMM yyyy, HH:mm",
+"d MMM yyyy, h:mm a",
+"dd MMM yyyy, h:mm a",
+"d MMM yyyy h:mm a",
+"dd MMM yyyy h:mm a"
+]
+for format in formatsWithTime {
 formatter.dateFormat = format
 if let date = formatter.date(from: trimmed) {
 return date
 }
 }
-return nil
+// 日期字符串缺少具体时刻或为中文自然日期时，保留 now 的时分而不虚构 00:00
+let fallback = MimiNaturalLanguageDateParser.parse(
+in: trimmed,
+now: now,
+fallbackDate: now,
+timeZone: timeZone
+)
+return fallback.hasExplicitDateOrTime ? fallback.date : nil
 }
 }
 
@@ -525,10 +552,19 @@ return dto.toDraftBill(now: now)
 }
 
 public static func recognitionSystemPrompt(now: Date = Date()) -> String {
+let cal = MimiNaturalLanguageDateParser.malaysiaCalendar()
 let formatter = DateFormatter()
 formatter.locale = Locale(identifier: "zh_CN")
+formatter.timeZone = MimiNaturalLanguageDateParser.malaysiaTimeZone
 formatter.dateFormat = "yyyy-MM-dd HH:mm"
 let todayText = formatter.string(from: now)
+
+let timeFormatter = DateFormatter()
+timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+timeFormatter.timeZone = MimiNaturalLanguageDateParser.malaysiaTimeZone
+timeFormatter.dateFormat = "HH:mm"
+let timeOnlyText = timeFormatter.string(from: now)
+let currentYear = cal.component(.year, from: now)
 
 let expenseGroups = DefaultCatalog.standardExpenseCategories()
 let incomeGroups = DefaultCatalog.standardIncomeCategories()
@@ -545,24 +581,35 @@ let accountNames = DefaultCatalog.defaultAccounts().map(\.name).joined(separator
 return """
 你是「咪咪记账」的账单识别引擎，只输出符合 schema 的 JSON，不要输出任何其他文字。
 
-现在时间是 \(todayText)（马来西亚时间）。截图上的日期一律是马来西亚格式「日/月/年」：例如 08/11/2026 表示 2026 年 11 月 8 日，绝不能读成 8 月 11 日。时间是 24 小时制。截图上没有日期时用现在时间。
+现在时间是 \(todayText)（马来西亚时间 Asia/Kuala_Lumpur，当前年份 \(currentYear) 年）。
 
-判断顺序：
-1. 先判断收支类型 type：付款/消费/扣款成功 = expense；收款/到账/工资/退款 = income；只有当截图明确显示是本人两个账户之间的转账（两边账户都属于下方账户列表）时才用 transfer。把钱转给另一个人（DuitNow 给个人等）属于 expense，不是 transfer。
-2. 金额 amount 取交易本身的金额（通常带 RM 标志的主金额），不要取账户余额、参考编号、订单号，也不要取手机状态栏的时间或电量百分比数字。
-3. counterparty 照截图原文原样填写（英文大写就保持大写）：商家付款填商家名，个人转账填对方姓名。counterpartyKind：商家/公司填 merchant，个人填 person。
-4. account 必须从账户列表中选最接近的一个：\(accountNames)。TNG eWallet / Touch 'n Go 选 TNGewallet；Public Bank 选 PBBank。
-5. 分类必须按商家/业务性质判断，只能从下面的分类表里选一级与二级，不要靠单个关键词硬猜：
+防误判铁律：
+1. 先判断收支类型 type：
+   - 付款 / 消费 / 扣款 / 扫码支付 / DuitNow QR 付款给商家 = expense。
+   - DuitNow / 银行 / 电子钱包转给另一个人（个人姓名）= expense（并非 transfer），primaryCategory 选「资金往来」。
+   - 收款 / 到账 / 工资 / 退款 / 返现 = income。
+   - 只有当截图明确显示是「本人名下两个账户之间互转」或从本人银行账户充值到本人电子钱包（两边账户都属于下方账户列表：\(accountNames)）时才用 transfer，并在 targetAccount 填写转入账户；否则 targetAccount 必须填 null。
+2. 金额 amount 只取「实际支付/收款/转账的最终 RM/MYR 主金额」（通常紧邻 Total / Grand Total / Net Total / Amount Paid / 实付金额 / RM 抬头，字号最大或位于结算区最末行）。
+   - 若小票同时出现外币金额与括号换算后的 RM 金额（例如 $ 79 (RM38.99) 或 RMB 79 (RM38.99)），一律以 RM 实际扣款金额 38.99 为准。
+   - 绝不能误取：Subtotal（折前小计）、Discount（折扣额）、Tax/SST（单独税额）、Cash/Tendered/Change（付现与找零）、账户余额（Balance/Available Balance）、积分（Points）、商品数量（Qty）、单价乘数，更绝不能取手机状态栏的时间或电量百分比数字。
+3. 日期时间 occurredAt（最易出错，必须反复核对）输出严格 "yyyy-MM-dd HH:mm"：
+   - 截图上的数字斜杠日期一律按马来西亚「日/月/年（DD/MM/YYYY）」理解：例如 08/11/2026 表示 2026 年 11 月 8 日，绝不能读成 8 月 11 日。
+   - 英文月份（如 8 Nov 2026、08-Nov-26）准确转为对应公历年月日；若截图只有月日没有年份，默认使用当前年份 \(currentYear)。
+   - AM/PM 与上午/下午/晚上 12 小时制必须准确换算成 24 小时制（例如 8:07 PM → 20:07，12:30 PM → 12:30，12:15 AM → 00:15）。
+   - 只能读取交易详情或小票正文里的交易时间（Date / Time / Date & Time / Transaction Date / Created）。绝不能抄写手机屏幕最上方状态栏的时钟！
+   - 若正文中只有日期没有具体时分，用正文日期 + 当前时分 \(timeOnlyText)；若正文中完全找不到交易日期时间，直接原样输出 \(todayText)，绝不瞎编或套用无关时间戳。
+4. counterparty 照截图原文原样填写（英文大写就保持大写）：商家付款填店名/商家全名，个人转账填对方姓名。counterpartyKind：商家/公司填 merchant，个人填 person。
+5. account 必须从账户列表中选最接近的一个：\(accountNames)。Touch 'n Go / TNG eWallet / DuitNow(TNG页) 选 TNGewallet；Public Bank / PB engage 选 PBBank；CIMB / Octo 选 CIMB；现金/纸质小票且看不出电子扣款渠道选 现金。
+6. 分类必须按商家/消费内容本身判断，只能严格从下面的分类表里选配对好的一级 primaryCategory 与二级 subCategory（该一级无二级时 subCategory 必须填 null，绝不能把其他一级下的二级强行混搭）：
 支出分类：
 \(expenseLines)
 收入分类：
 \(incomeLines)
-判断示例：餐厅、餐馆、食堂、快餐店 → 餐饮-餐厅；咖啡店 → 餐饮-咖啡；奶茶/饮料店 → 餐饮-饮品；油站（Petronas、Shell、Caltex 等）加油 → 交通-加油充电；Grab/打车 → 交通-打车叫车；超市买日用品 → 购物-生活用品；话费/宽带充值 → 住房-话费网费；房租 → 住房-房租房贷；转钱给朋友/家人 → 资金往来-人情往来（到期还款则选 资金往来-还款）；收到别人转账 → 收入分类「别人转账」（无二级，subCategory 填 null）。
-6. 备注 note 按规则生成，简洁一句、不带杂讯：向商家付款 → 「{商家名} 消费」；把钱转给个人 → 「转账给{姓名}」；收到个人转账 → 「{姓名} 转账」；本人账户间转账 → 「账户转账」。名字照截图原文，必须是你真正在截图里读到的商家名/姓名，读不到就把 counterparty 留空字符串，不许用数字碎片、编号或页面边角的零散文字凑名。
-7. occurredAt 输出 "yyyy-MM-dd HH:mm" 格式。
-8. 认真读细节：先把整个交易详情页从头到尾读完，再逐项填写，不要看到第一个数字就下结论。商家全名以页面上的商家/收款方字段为准（例如 Paid to、Merchant、收款方、Payment - 后面的店名抬头），不要拿页面其他位置的零散文字拼凑商家名。
+常见判断示例：餐厅/茶室/Mamak/Kopitiam/快餐 → 餐饮-餐厅；咖啡店（Starbucks、ZUS、Luckin）→ 餐饮-咖啡；奶茶/饮料店（Chagee、Tealive、Mixue）→ 餐饮-饮品；油站（Petronas、Shell、Caltex、BHP）加油 → 交通-加油充电；Grab 打车 → 交通-打车叫车（GrabFood 点餐 → 餐饮-外卖外带）；超市/便利店（Jaya Grocer、Village Grocer、AEON、99 Speedmart、Watsons）买日用品 → 购物-生活用品，纯买生鲜蔬菜水果食材 → 餐饮-做饭食材；话费/宽带（Maxis、CelcomDigi、U Mobile、Unifi）→ 住房-话费网费；水电（TNB、Air Selangor）→ 住房-物业水电；房租 → 住房-房租房贷；诊所/药房买药 → 医疗健康-看病买药；转钱给朋友/家人 → 资金往来-人情往来（还款选 资金往来-还款）；收到别人转账 → 收入分类「别人转账」（subCategory 填 null）。
+7. 备注 note 按规则生成，简洁一句、不带杂讯：向商家付款 → 「{商家名} 消费」；把钱转给个人 → 「转账给{姓名}」；收到个人转账 → 「{姓名} 转账」；本人账户间转账 → 「账户转账」。名字照截图原文，必须是你真正在截图里读到的商家名/姓名，读不到就把 counterparty 留空字符串，不许用数字碎片、编号或页面边角的零散文字凑名。
+8. 认真读细节：先把整个交易详情页从头到尾读完，再逐项填写，不要看到第一个数字就下结论。商家全名以页面上的商家/收款方字段为准（例如 Paid to、Merchant、Recipient、收款方、Payment - 后面的店名抬头），不要拿页面其他位置的零散文字或银行口号（如 Payment Successful）当商家名。
 9. 忽略手机状态栏：截图最上方状态栏里的时间、电量百分比、信号、运营商等信息与交易无关，绝不能进入任何字段。
-10. 参考号、交易号、Transaction No.、Wallet Ref、订单号这类长串数字/字母编号，不是金额、不是商家、也不是备注，绝不能填进 amount、counterparty 或 note。
+10. 参考号、交易号、Transaction No.、Wallet Ref、Invoice No.、订单号这类长串数字/字母编号，不是金额、不是商家、也不是备注，绝不能填进 amount、counterparty 或 note。
 """
 }
 
@@ -597,14 +644,7 @@ return [
 public static func answerQuestion(_ question: String, store: MimiStore, now: Date = Date()) async throws -> String {
 let model = GeminiSettings.modelName
 let context = LedgerContextBuilder.buildContext(store: store, question: question, now: now)
-let system = """
-你是「咪咪记账」的问账助手，只回答与用户记账数据相关的问题（收支、分类、预算、账户余额、账单查询）。
-规则：
-- 所有数字必须来自下方提供的账目数据，不许编造；数据不足以回答时，直接说明「现有账目数据不足以回答这个问题」。
-- 金额一律用 RM 格式（如 RM38.99），日期写清年月日。
-- 与记账无关的问题，礼貌说明只能帮忙查账，并提示可以问的问题类型。
-- 回答简洁，用中文，不要输出表格以外的多余格式。
-"""
+let system = LedgerContextBuilder.questionSystemPrompt()
 let body: [String: Any] = [
 "systemInstruction": ["parts": [["text": system]]],
 "contents": [[
@@ -612,7 +652,7 @@ let body: [String: Any] = [
 "parts": [["text": "【账目数据】\n\(context)\n\n【我的问题】\n\(question)"]]
 ]],
 "generationConfig": [
-"temperature": 0.2,
+"temperature": 0.1,
 "thinkingConfig": thinkingSuppressionConfig(forModel: model)
 ]
 ]

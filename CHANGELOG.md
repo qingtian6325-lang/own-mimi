@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🎯 Highlights
 - **日历式日期选择**：共享 `MimiDatePickerSheet`（「日期」+「回今天」、月历蓝圈选日、时间灰胶囊 + 时分滚轮、大蓝「确认」）；账单详情 / 记账 / 统计自定义 / 导出自定义 / 全部记录月标题统一接线。
+- **AI 日期解析与防误判**：新增 `MimiNaturalLanguageDateParser`（支持 `今天`/`昨天`/`前天`/`3天前`/`上周三`、`11月8日`/`2026年11月8日`/`08/11/2026`/`8号` 与 `早上8点半`/`晚上8点`/`20:07`/`9:54 AM` 等，按 `Asia/Kuala_Lumpur` / 中文语境准确落时，未提具体时刻时保留 `now` 时分且不把日期/时刻/品牌数字误判为金额）；收紧 Gemini / Groq 识图与问账提示词（`temperature: 0.1`、`LedgerContextBuilder.questionSystemPrompt()`）、扩充 `BillMessageClassifier` 问句词及 `DefaultCatalog.resolveCategoryIds` 跨组匹配。
+- **AI 对话自动滚动到底部**：`MimiAIAskOverlayView` 与 `RecordAndAISheetView` 通过底部锚点监听消息内容变化（含就地刷新 AI 回复块）、思考状态、展开与输入焦点，自动平滑滚至最新消息。
 - **发版**：`VERSION` / Intent 默认版本升至 1.3.18。
 
 ## [v1.3.17] - 2026-11-14

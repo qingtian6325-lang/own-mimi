@@ -49,6 +49,7 @@ public struct RecordAndAISheetView: View {
     @State private var showChatCameraPicker: Bool = false
     @State private var recognitionFailureText: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let chatBottomAnchorID = "mimi-record-ai-bottom-anchor"
     #if canImport(Speech) && canImport(AVFoundation)
     @StateObject private var speechTranscriber = SpeechTranscriber()
     #endif
@@ -1036,18 +1037,29 @@ public struct RecordAndAISheetView: View {
                             chatBubbleView(for: msg)
                                 .id(msg.id)
                         }
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id(Self.chatBottomAnchorID)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
                     .padding(.bottom, 12)
                 }
                 .background(MimiTheme.cardBackground)
-                .onChange(of: aiEngine.messages.count) { _, _ in
-                    if let last = aiEngine.messages.last {
-                        withAnimation(MimiMotion.quick(reduceMotion: reduceMotion)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
+                .onAppear {
+                    scrollChatToBottom(proxy, animated: false)
+                }
+                .onChange(of: isAIMode) { _, aiMode in
+                    if aiMode {
+                        scrollChatToBottom(proxy, animated: false)
                     }
+                }
+                .onChange(of: aiEngine.messages) { _, _ in
+                    scrollChatToBottom(proxy, animated: true)
+                }
+                .onChange(of: aiEngine.isAnswering) { _, _ in
+                    scrollChatToBottom(proxy, animated: true)
                 }
             }
 
@@ -1165,6 +1177,24 @@ public struct RecordAndAISheetView: View {
             .padding(.top, 8)
             .padding(.bottom, 12)
             .background(MimiTheme.cardBackground)
+        }
+    }
+
+    private func scrollChatToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
+        let performScroll = {
+            if animated && !reduceMotion {
+                withAnimation(.easeOut(duration: 0.22)) {
+                    proxy.scrollTo(Self.chatBottomAnchorID, anchor: .bottom)
+                }
+            } else {
+                proxy.scrollTo(Self.chatBottomAnchorID, anchor: .bottom)
+            }
+        }
+        DispatchQueue.main.async {
+            performScroll()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            performScroll()
         }
     }
 

@@ -200,11 +200,11 @@ public enum GroqClient {
         let dataURL = "data:\(mimeType);base64,\(uploadData.base64EncodedString())"
         let system = GeminiClient.recognitionSystemPrompt(now: now)
         let schemaHint = """
-请严格输出一个 JSON 对象，字段如下（不要其它文字）：
+请严格输出一个 JSON 对象，字段如下（不要其它文字、不要 markdown 围栏以外的任何说明）：
 type(expense|income|transfer), amount(number), counterparty(string), counterpartyKind(merchant|person),
 account(string), targetAccount(string|null), primaryCategory(string), subCategory(string|null),
 occurredAt("yyyy-MM-dd HH:mm"), note(string)。
-无二级分类或无转账对方账户时对应字段填 null。
+primaryCategory 与 subCategory 必须严格配对使用上方分类表中列出的名称，不能混搭；无二级分类或无转账对方账户时对应字段填 null；occurredAt 绝不能抄手机状态栏时间或编造日期。
 """
 
         let body: [String: Any] = [
@@ -218,7 +218,7 @@ occurredAt("yyyy-MM-dd HH:mm"), note(string)。
                 [
                     "role": "user",
                     "content": [
-                        ["type": "text", "text": "请识别这张付款/收款/转账截图，按系统规则输出 JSON。"],
+                        ["type": "text", "text": "请仔细阅读整张付款/收款/转账截图正文并核对最终实付 RM 金额与交易时间，严格按系统规则输出 JSON。"],
                         ["type": "image_url", "image_url": ["url": dataURL]]
                     ] as [[String: Any]]
                 ]
@@ -244,17 +244,10 @@ occurredAt("yyyy-MM-dd HH:mm"), note(string)。
     public static func answerQuestion(_ question: String, store: MimiStore, now: Date = Date()) async throws -> String {
         let model = GroqSettings.modelName
         let context = LedgerContextBuilder.buildContext(store: store, question: question, now: now)
-        let system = """
-你是「咪咪记账」的问账助手，只回答与用户记账数据相关的问题（收支、分类、预算、账户余额、账单查询）。
-规则：
-- 所有数字必须来自下方提供的账目数据，不许编造；数据不足以回答时，直接说明「现有账目数据不足以回答这个问题」。
-- 金额一律用 RM 格式（如 RM38.99），日期写清年月日。
-- 与记账无关的问题，礼貌说明只能帮忙查账，并提示可以问的问题类型。
-- 回答简洁，用中文，不要输出表格以外的多余格式。
-"""
+        let system = LedgerContextBuilder.questionSystemPrompt()
         let body: [String: Any] = [
             "model": model,
-            "temperature": 0.2,
+            "temperature": 0.1,
             "max_completion_tokens": 2048,
             "reasoning_effort": "none",
             "messages": [

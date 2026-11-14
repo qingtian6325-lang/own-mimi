@@ -342,16 +342,39 @@ public enum DefaultCatalog {
         }
         let parts = categoryPath.components(separatedBy: "-")
         let primaryName = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? categoryPath
-        let subName = parts.count > 1 ? parts.dropFirst().joined(separator: "-").trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        let rawSub = parts.count > 1 ? parts.dropFirst().joined(separator: "-").trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        let subName = (rawSub?.isEmpty == false) ? rawSub : nil
         let catalog = (type == .income ? standardIncomeCategories() : standardExpenseCategories())
         if let group = catalog.first(where: { $0.name == primaryName || $0.id == primaryName }) {
-            if let sName = subName,
-               let sub = group.subCategories.first(where: { $0.name == sName || $0.id == sName }) {
-                return (group.id, sub.id, sub.displayBadgeToken)
+            if let sName = subName {
+                if let sub = group.subCategories.first(where: { $0.name == sName || $0.id == sName }) {
+                    return (group.id, sub.id, sub.displayBadgeToken)
+                }
+                if let (otherGroup, otherSub) = findSubCategory(named: sName, in: catalog) {
+                    return (otherGroup.id, otherSub.id, otherSub.displayBadgeToken)
+                }
             }
             return (group.id, nil, group.displayBadgeToken)
         }
-        return (primaryName, subName, "🍜")
+        if let sName = subName, let (ownerGroup, matchedSub) = findSubCategory(named: sName, in: catalog) {
+            return (ownerGroup.id, matchedSub.id, matchedSub.displayBadgeToken)
+        }
+        if let (ownerGroup, matchedSub) = findSubCategory(named: primaryName, in: catalog) {
+            return (ownerGroup.id, matchedSub.id, matchedSub.displayBadgeToken)
+        }
+        if type == .income {
+            return ("inc_other", nil, "📦")
+        }
+        return ("exp_food", "exp_food_restaurant", "🍜")
+    }
+
+    private static func findSubCategory(named name: String, in catalog: [CategoryGroup]) -> (CategoryGroup, SubCategory)? {
+        for group in catalog {
+            if let sub = group.subCategories.first(where: { $0.name == name || $0.id == name }) {
+                return (group, sub)
+            }
+        }
+        return nil
     }
 
     public static func resolveCategoryDisplay(primaryId: String, subId: String?, type: TransactionType) -> (categoryPath: String, iconName: String) {

@@ -108,4 +108,64 @@ final class AIEngineTests: XCTestCase {
             return false
         }))
     }
+
+    func testNaturalLanguageDateParserRelativeAndAbsoluteDatesInMalaysiaTimeZone() throws {
+        let tz = MimiNaturalLanguageDateParser.malaysiaTimeZone
+        var cal = MimiNaturalLanguageDateParser.calendar(in: tz)
+        cal.timeZone = tz
+        let now = try XCTUnwrap(cal.date(from: DateComponents(year: 2026, month: 11, day: 14, hour: 15, minute: 20)))
+
+        func assertParsed(_ text: String, expectedExplicit: Bool = true, year: Int, month: Int, day: Int, hour: Int, minute: Int, file: StaticString = #filePath, line: UInt = #line) {
+            let res = MimiNaturalLanguageDateParser.parse(in: text, now: now, timeZone: tz)
+            XCTAssertEqual(res.hasExplicitDateOrTime, expectedExplicit, "explicit mismatch for \(text)", file: file, line: line)
+            let c = cal.dateComponents([.year, .month, .day, .hour, .minute, .weekday], from: res.date)
+            XCTAssertEqual(c.year, year, "year mismatch for \(text)", file: file, line: line)
+            XCTAssertEqual(c.month, month, "month mismatch for \(text)", file: file, line: line)
+            XCTAssertEqual(c.day, day, "day mismatch for \(text)", file: file, line: line)
+            XCTAssertEqual(c.hour, hour, "hour mismatch for \(text)", file: file, line: line)
+            XCTAssertEqual(c.minute, minute, "minute mismatch for \(text)", file: file, line: line)
+        }
+
+        // Date-only phrases preserve now's time-of-day (15:20) instead of inventing 00:00 or random timestamps
+        assertParsed("今天午饭 25", year: 2026, month: 11, day: 14, hour: 15, minute: 20)
+        assertParsed("昨天吃面 15", year: 2026, month: 11, day: 13, hour: 15, minute: 20)
+        assertParsed("前天买水 4", year: 2026, month: 11, day: 12, hour: 15, minute: 20)
+        assertParsed("3天前打车 28", year: 2026, month: 11, day: 11, hour: 15, minute: 20)
+        assertParsed("上周三聚餐 68", year: 2026, month: 11, day: 4, hour: 15, minute: 20)
+        assertParsed("11月8日 晚饭 45", year: 2026, month: 11, day: 8, hour: 15, minute: 20)
+        assertParsed("2026年11月8日 早上8点半 早餐 12", year: 2026, month: 11, day: 8, hour: 8, minute: 30)
+        assertParsed("08/11/2026 20:07 便利店 19.90", year: 2026, month: 11, day: 8, hour: 20, minute: 7)
+        assertParsed("8号 9:54 AM 咖啡 13.5", year: 2026, month: 11, day: 8, hour: 9, minute: 54)
+        assertParsed("喝咖啡 12", expectedExplicit: false, year: 2026, month: 11, day: 14, hour: 15, minute: 20)
+    }
+
+    func testNaturalLanguageBillsDoNotMisreadDatesOrBrandNumbersAsAmounts() throws {
+        let tz = MimiNaturalLanguageDateParser.malaysiaTimeZone
+        var cal = MimiNaturalLanguageDateParser.calendar(in: tz)
+        cal.timeZone = tz
+        let now = try XCTUnwrap(cal.date(from: DateComponents(year: 2026, month: 11, day: 14, hour: 15, minute: 20)))
+        let engine = MimiAIEngine()
+
+        let nov8 = engine.parseNaturalLanguageBills("11月8日 午饭 25", now: now, timeZone: tz)
+        XCTAssertEqual(nov8.count, 1)
+        XCTAssertEqual(nov8[0].amount, 25.0, accuracy: 0.001)
+        XCTAssertEqual(cal.dateComponents([.year, .month, .day], from: nov8[0].occurredAt), DateComponents(year: 2026, month: 11, day: 8))
+
+        let lastNight = engine.parseNaturalLanguageBills("昨天晚上8点 宵夜 30", now: now, timeZone: tz)
+        XCTAssertEqual(lastNight.count, 1)
+        XCTAssertEqual(lastNight[0].amount, 30.0, accuracy: 0.001)
+        XCTAssertEqual(cal.dateComponents([.year, .month, .day, .hour, .minute], from: lastNight[0].occurredAt), DateComponents(year: 2026, month: 11, day: 13, hour: 20, minute: 0))
+
+        let multi = engine.parseNaturalLanguageBills("昨天 午饭 25，咖啡 12", now: now, timeZone: tz)
+        XCTAssertEqual(multi.count, 2)
+        XCTAssertEqual(multi[0].amount, 25.0, accuracy: 0.001)
+        XCTAssertEqual(multi[1].amount, 12.0, accuracy: 0.001)
+        XCTAssertEqual(cal.component(.day, from: multi[0].occurredAt), 13)
+        XCTAssertEqual(cal.component(.day, from: multi[1].occurredAt), 13)
+
+        let speedmart = engine.parseNaturalLanguageBills("99 Speedmart 18.90", now: now, timeZone: tz)
+        XCTAssertEqual(speedmart.count, 1)
+        XCTAssertEqual(speedmart[0].amount, 18.90, accuracy: 0.001)
+        XCTAssertTrue(speedmart[0].merchantOrNote.contains("99 Speedmart"), "got note: \(speedmart[0].merchantOrNote)")
+    }
 }

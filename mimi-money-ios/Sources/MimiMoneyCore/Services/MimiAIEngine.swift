@@ -145,15 +145,18 @@ public final class MimiAIEngine: ObservableObject {
     // MARK: - Natural Language Bill Parsing
 
     /// Splits a single natural-language input into one or more `ParsedDraftBill` items ("一句话记多笔").
-    /// Supports both punctuation delimiters ("，,；;\n") and whitespace between an amount and the next keyword (e.g. "午饭 24.5 咖啡 12.9 打车 18").
+    /// Supports both punctuation delimiters ("，,；;\n") and whitespace between an amount and the next keyword (e.g. "午饭 24.5 咖啡 12.9 打车 18"),
+    /// without splitting inside dates/times such as "11月8日 午饭 25", "2026-11-08 午饭 25", or "晚上8点 宵夜 30".
     public func parseNaturalLanguageBills(
         _ input: String,
         now: Date = Date(),
         preferredAccountId: String? = nil,
-        preferredAccountName: String? = nil
+        preferredAccountName: String? = nil,
+        timeZone: TimeZone = .current
     ) -> [ParsedDraftBill] {
+        let splitPattern = #"(?<![0-9\-/:：年月.])([0-9]+(?:\.[0-9]{1,2})?(?:\s*(?:元|块|令吉))?)(?![0-9年月日号点时分天周杯个碗份次张件人笔:/：%\-])(?=\s+(?!年|月|日|号|点|时|分|天前|AM|PM|am|pm)[^\s0-9\.])"#
         let normalized = input.replacingOccurrences(
-            of: #"([0-9]+(?:\.[0-9]{1,2})?(?:\s*(?:元|块|令吉))?)\s+(?=[^\s0-9\.])"#,
+            of: splitPattern,
             with: "$1,",
             options: .regularExpression
         )
@@ -164,28 +167,40 @@ public final class MimiAIEngine: ObservableObject {
             .filter { !$0.isEmpty }
 
         var drafts: [ParsedDraftBill] = []
+        var carryDate = now
         for clause in rawClauses {
-            guard let amount = extractAmount(from: clause), amount > 0 else { continue }
-            let isIncome = clause.contains("收") || clause.contains("工资") || clause.contains("还我") || clause.contains("还钱") || clause.contains("奖金")
+            let parsedDate = MimiNaturalLanguageDateParser.parse(
+                in: clause,
+                now: now,
+                fallbackDate: carryDate,
+                timeZone: timeZone
+            )
+            if parsedDate.hasExplicitDateOrTime {
+                carryDate = parsedDate.date
+            }
+            let textWithoutDate = parsedDate.strippedText
+            guard let amountMatch = extractAmountMatch(from: textWithoutDate), amountMatch.value > 0 else { continue }
+            let isIncome = detectIncome(in: clause)
             let (accountId, accountName) = detectAccount(
                 in: clause,
                 preferredAccountId: preferredAccountId,
                 preferredAccountName: preferredAccountName
             )
             let (primaryId, subId, categoryDisplay) = detectCategory(in: clause, isIncome: isIncome)
-            let cleanNote = cleanClauseNote(clause)
+            let rawNote = cleanClauseNote(textWithoutDate, removingAmountRange: amountMatch.range)
+            let finalNote = rawNote.isEmpty ? (categoryDisplay.components(separatedBy: "-").last ?? categoryDisplay) : rawNote
             drafts.append(
                 ParsedDraftBill(
                     type: isIncome ? .income : .expense,
-                    amount: amount,
+                    amount: amountMatch.value,
                     currency: .myr,
                     primaryCategoryId: primaryId,
                     subCategoryId: subId,
                     categoryDisplayName: categoryDisplay,
                     accountId: accountId,
                     accountDisplayName: accountName,
-                    merchantOrNote: cleanNote,
-                    occurredAt: detectRelativeDate(in: clause, now: now)
+                    merchantOrNote: finalNote,
+                    occurredAt: parsedDate.date
                 )
             )
         }
@@ -491,13 +506,80 @@ public final class MimiAIEngine: ObservableObject {
 
     // MARK: - Natural Language Parsing Helpers
 
-    private func extractAmount(from clause: String) -> Double? {
-        let pattern = #"(?:RM|MYR|¥|\$)?\s*([0-9]+(?:\.[0-9]{1,2})?)"#
+    private struct AmountCandidate {
+        let value: Double
+        let range: Range<String.Index>
+        let hasCurrency: Bool
+        let isDecimal: Bool
+    }
+
+    private func extractAmountMatch(from clause: String) -> (value: Double, range: Range<String.Index>)? {
+        let pattern = #"((?:RM|MYR|¥|\$)\s*)?([0-9]+(?:\.[0-9]{1,2})?)(\s*(?:元|块|令吉))?"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
         let nsRange = NSRange(clause.startIndex..<clause.endIndex, in: clause)
-        guard let match = regex.firstMatch(in: clause, range: nsRange),
-              let valRange = Range(match.range(at: 1), in: clause) else { return nil }
-        return Double(clause[valRange])
+        let matches = regex.matches(in: clause, range: nsRange)
+        let excludedPrefixes: Set<Character> = ["-", "/", ":", "："]
+        let excludedUnits = ["年", "月", "日", "号", "点", "时", "分", "天", "周", "个", "杯", "碗", "份", "次", "张", "件", "人", "笔", "折", "%", "倍", "岁", "楼", "层", "kg", "g", "ml", "l"]
+
+        var candidates: [AmountCandidate] = []
+        for match in matches {
+            guard let fullRange = Range(match.range, in: clause),
+                  let valRange = Range(match.range(at: 2), in: clause),
+                  let val = Double(clause[valRange]) else { continue }
+            let hasCurrency = match.range(at: 1).location != NSNotFound || match.range(at: 3).location != NSNotFound
+            if !hasCurrency {
+                if valRange.lowerBound > clause.startIndex {
+                    let prevChar = clause[clause.index(before: valRange.lowerBound)]
+                    if excludedPrefixes.contains(prevChar) || (prevChar.isASCII && prevChar.isLetter) {
+                        continue
+                    }
+                }
+                let after = clause[valRange.upperBound...]
+                if after.first == "-", let second = after.dropFirst().first, second.isASCII && second.isLetter {
+                    continue
+                }
+                let afterTrimmed = after.trimmingCharacters(in: .whitespaces).lowercased()
+                if excludedUnits.contains(where: { afterTrimmed.hasPrefix($0) }) {
+                    continue
+                }
+            }
+            candidates.append(
+                AmountCandidate(
+                    value: val,
+                    range: fullRange,
+                    hasCurrency: hasCurrency,
+                    isDecimal: clause[valRange].contains(".")
+                )
+            )
+        }
+        if let picked = candidates.last(where: { $0.hasCurrency }) {
+            return (picked.value, picked.range)
+        }
+        if let picked = candidates.last(where: { $0.isDecimal }) {
+            return (picked.value, picked.range)
+        }
+        if let picked = candidates.last {
+            return (picked.value, picked.range)
+        }
+        return nil
+    }
+
+    private func detectIncome(in clause: String) -> Bool {
+        let lower = clause.lowercased()
+        if clause.contains("转给") || clause.contains("还给") || clause.contains("借给") {
+            return false
+        }
+        let incomeKeywords = [
+            "工资", "薪水", "发薪", "奖金", "花红", "津贴", "补助",
+            "还我", "还钱", "转我", "给我转",
+            "收款", "收到", "收入", "到账", "兼职", "副业",
+            "报销到账", "退税", "退款", "返现", "cashback",
+            "分红", "股息", "利息", "中奖"
+        ]
+        if incomeKeywords.contains(where: { lower.contains($0) }) {
+            return true
+        }
+        return clause.contains("收") && !clause.contains("手续费") && !clause.contains("收费")
     }
 
     private func detectAccount(
@@ -506,10 +588,10 @@ public final class MimiAIEngine: ObservableObject {
         preferredAccountName: String? = nil
     ) -> (String?, String) {
         let lower = clause.lowercased()
-        if lower.contains("tng") || lower.contains("ewallet") || lower.contains("一触即通") {
+        if lower.contains("tng") || lower.contains("ewallet") || lower.contains("touch") || lower.contains("一触即通") {
             return ("acc_tng", "TNGewallet")
         }
-        if lower.contains("pbb") || lower.contains("大众") || lower.contains("pbbank") {
+        if lower.contains("pbb") || lower.contains("大众") || lower.contains("pbbank") || lower.contains("public bank") {
             return ("acc_pbb", "PBBank")
         }
         if lower.contains("cimb") || lower.contains("联昌") {
@@ -525,53 +607,175 @@ public final class MimiAIEngine: ObservableObject {
     }
 
     private func detectCategory(in clause: String, isIncome: Bool) -> (String, String?, String) {
+        let lower = clause.lowercased()
         if isIncome {
-            if clause.contains("还") || clause.contains("转账") {
+            if lower.contains("报销") {
+                return ("inc_refund", "inc_refund_reimburse", "退款返还-报销")
+            }
+            if lower.contains("返现") || lower.contains("cashback") {
+                return ("inc_refund", "inc_refund_cashback", "退款返还-返现")
+            }
+            if lower.contains("退税") {
+                return ("inc_refund", "inc_refund_tax", "退款返还-退税")
+            }
+            if lower.contains("退款") {
+                return ("inc_refund", nil, "退款返还")
+            }
+            if lower.contains("还") || lower.contains("转账") || lower.contains("转我") {
                 return ("inc_custom_transfer", nil, "别人转账")
+            }
+            if lower.contains("奖金") || lower.contains("花红") {
+                return ("inc_salary", "inc_salary_bonus", "职业收入-绩效奖金")
+            }
+            if lower.contains("津贴") || lower.contains("补助") {
+                return ("inc_salary", "inc_salary_allowance", "职业收入-津贴补助")
+            }
+            if lower.contains("兼职") || lower.contains("副业") {
+                return ("inc_sidejob", nil, "副业兼职")
+            }
+            if lower.contains("分红") || lower.contains("股息") {
+                return ("inc_invest", "inc_invest_dividend", "投资收入-股息分红")
+            }
+            if lower.contains("利息") {
+                return ("inc_invest", "inc_invest_interest", "投资收入-利息")
+            }
+            if lower.contains("生活费") {
+                return ("inc_gift", "inc_gift_living", "礼金收入-生活费")
+            }
+            if lower.contains("二手") {
+                return ("inc_other", "inc_other_secondhand", "其他收入-二手买卖")
+            }
+            if lower.contains("中奖") || lower.contains("好运") {
+                return ("inc_other", "inc_other_lucky", "其他收入-好运收入")
             }
             return ("inc_salary", nil, "职业收入")
         }
-        if clause.contains("加油") || clause.contains("打油") || clause.contains("充电") || clause.contains("shell") {
+
+        if lower.contains("车贷") {
+            return ("exp_custom_carloan", nil, "车贷")
+        }
+        if lower.contains("家用") {
+            return ("exp_custom_home", nil, "家用")
+        }
+        if lower.contains("加油") || lower.contains("打油") || lower.contains("充电") || lower.contains("shell") || lower.contains("petronas") || lower.contains("petron") || lower.contains("caltex") || lower.contains("bhp") {
             return ("exp_transport", "exp_trans_fuel", "交通-加油充电")
         }
-        if clause.contains("打车") || clause.contains("滴滴") || clause.contains("grab") {
+        if lower.contains("打车") || lower.contains("滴滴") || lower.contains("grab") || lower.contains("taxi") {
             return ("exp_transport", "exp_trans_taxi", "交通-打车叫车")
         }
-        if clause.contains("麻将") || clause.contains("电影") || clause.contains("游戏") || clause.contains("娱乐") {
+        if lower.contains("mrt") || lower.contains("lrt") || lower.contains("ktm") || lower.contains("monorail") || lower.contains("地铁") || lower.contains("轻快铁") || lower.contains("巴士") || lower.contains("公交") || lower.contains("rapid") {
+            return ("exp_transport", "exp_trans_public", "交通-公共交通")
+        }
+        if lower.contains("过路") || lower.contains("toll") || lower.contains("rfid") || lower.contains("smarttag") || lower.contains("停车") || lower.contains("parking") || lower.contains("泊车") {
+            return ("exp_transport", "exp_trans_parking", "交通-过路停车")
+        }
+        if lower.contains("高铁") || lower.contains("火车") || lower.contains("机票") || lower.contains("airasia") || lower.contains("klia") || lower.contains("ets") {
+            return ("exp_transport", "exp_trans_intercity", "交通-城际出行")
+        }
+        if lower.contains("洗车") || lower.contains("保养") || lower.contains("修车") || lower.contains("养车") {
+            return ("exp_transport", "exp_trans_carcare", "交通-养车")
+        }
+        if lower.contains("房租") || lower.contains("租金") || lower.contains("房贷") {
+            return ("exp_housing", "exp_house_rent", "住房-房租房贷")
+        }
+        if lower.contains("水电") || lower.contains("电费") || lower.contains("水费") || lower.contains("tnb") || lower.contains("煤气") {
+            return ("exp_housing", "exp_house_utility", "住房-物业水电")
+        }
+        if lower.contains("话费") || lower.contains("网费") || lower.contains("宽带") || lower.contains("unifi") || lower.contains("maxis") || lower.contains("celcom") || lower.contains("digi") || lower.contains("umobile") || lower.contains("hotlink") {
+            return ("exp_housing", "exp_house_telecom", "住房-话费网费")
+        }
+        if lower.contains("物业") {
+            return ("exp_housing", "exp_house_mgmt", "住房-物业管理费")
+        }
+        if lower.contains("麻将") || lower.contains("电影") || lower.contains("游戏") || lower.contains("娱乐") || lower.contains("ktv") || lower.contains("剧本杀") {
             return ("exp_entertainment", "exp_ent_offline", "休闲娱乐-线下娱乐")
         }
-        if clause.contains("奶茶") || clause.contains("饮品") || clause.contains("茶") || clause.contains("teh") {
+        if lower.contains("健身") || lower.contains("运动") || lower.contains("羽毛球") || lower.contains("游泳") || lower.contains("gym") {
+            return ("exp_entertainment", "exp_ent_sport", "休闲娱乐-运动健身")
+        }
+        if lower.contains("会员") || lower.contains("订阅") || lower.contains("netflix") || lower.contains("spotify") || lower.contains("icloud") || lower.contains("youtube") {
+            return ("exp_entertainment", "exp_ent_sub", "休闲娱乐-订阅会员")
+        }
+        if lower.contains("旅游") || lower.contains("度假") || lower.contains("酒店") || lower.contains("民宿") || lower.contains("airbnb") || lower.contains("agoda") {
+            return ("exp_entertainment", "exp_ent_travel", "休闲娱乐-旅游度假")
+        }
+        if lower.contains("看病") || lower.contains("买药") || lower.contains("诊所") || lower.contains("医院") || lower.contains("klinik") || lower.contains("pharmacy") || lower.contains("panadol") {
+            return ("exp_medical", "exp_med_doctor", "医疗健康-看病买药")
+        }
+        if lower.contains("牙医") || lower.contains("洗牙") || lower.contains("看牙") {
+            return ("exp_medical", "exp_med_dental", "医疗健康-医美齿科")
+        }
+        if lower.contains("宠物") || lower.contains("猫粮") || lower.contains("狗粮") || lower.contains("猫砂") {
+            return ("exp_pet", "exp_pet_food", "宠物-宠物食品")
+        }
+        if lower.contains("奶粉") || lower.contains("尿布") || lower.contains("纸尿裤") || lower.contains("母婴") {
+            return ("exp_baby", "exp_baby_supply", "母婴-母婴用品")
+        }
+        if lower.contains("图书") || lower.contains("文具") || lower.contains("买书") {
+            return ("exp_study", "exp_study_stationery", "学习办公-图书文具")
+        }
+        if lower.contains("学费") || lower.contains("培训") {
+            return ("exp_study", "exp_study_tuition", "学习办公-教育学费")
+        }
+        if lower.contains("还款") || lower.contains("还钱") || lower.contains("还给") {
+            return ("exp_transfer_social", "exp_social_repay", "资金往来-还款")
+        }
+        if lower.contains("转账") || lower.contains("转给") || lower.contains("红包") || lower.contains("人情") || lower.contains("送礼") || lower.contains("借给") {
+            return ("exp_transfer_social", "exp_social_gift", "资金往来-人情往来")
+        }
+        if lower.contains("保险") {
+            return ("exp_insurance", nil, "保险")
+        }
+        if lower.contains("奶茶") || lower.contains("饮品") || lower.contains("茶") || lower.contains("teh") || lower.contains("chagee") || lower.contains("霸王茶姬") || lower.contains("tealive") || lower.contains("mixue") || lower.contains("蜜雪") {
             return ("exp_food", "exp_food_drink", "餐饮-饮品")
         }
-        if clause.contains("咖啡") || clause.contains("coffee") {
+        if lower.contains("咖啡") || lower.contains("coffee") || lower.contains("starbucks") || lower.contains("zus") || lower.contains("luckin") || lower.contains("瑞幸") || lower.contains("kopi") {
             return ("exp_food", "exp_food_coffee", "餐饮-咖啡")
         }
-        if clause.contains("甜品") || clause.contains("零食") || clause.contains("egg") {
+        if lower.contains("甜品") || lower.contains("零食") || lower.contains("egg") || lower.contains("蛋糕") || lower.contains("面包") || lower.contains("冰淇淋") {
             return ("exp_food", "exp_food_snack", "餐饮-零食甜品")
         }
-        if clause.contains("外卖") {
+        if lower.contains("外卖") || lower.contains("grabfood") || lower.contains("foodpanda") {
             return ("exp_food", "exp_food_takeout", "餐饮-外卖外带")
         }
-        if clause.contains("购物") || clause.contains("超市") || clause.contains("买") && !clause.contains("吃") {
+        if lower.contains("酒吧") || lower.contains("喝酒") || lower.contains("啤酒") {
+            return ("exp_food", "exp_food_bar", "餐饮-酒吧酒水")
+        }
+        if lower.contains("买菜") || lower.contains("食材") || lower.contains("巴刹") || lower.contains("pasar") {
+            return ("exp_food", "exp_food_ingredient", "餐饮-做饭食材")
+        }
+        if lower.contains("护肤") || lower.contains("化妆") || lower.contains("面膜") || lower.contains("防晒") {
+            return ("exp_shopping", "exp_shop_beauty", "购物-美妆护肤")
+        }
+        if lower.contains("衣服") || lower.contains("裤子") || lower.contains("鞋子") || lower.contains("uniqlo") || lower.contains("zara") {
+            return ("exp_shopping", "exp_shop_clothes", "购物-服饰鞋包")
+        }
+        if lower.contains("数码") || lower.contains("耳机") || lower.contains("充电线") || lower.contains("键盘") || lower.contains("手机壳") {
+            return ("exp_shopping", "exp_shop_digital", "购物-数码电器")
+        }
+        if lower.contains("购物") || lower.contains("超市") || lower.contains("99 speedmart") || lower.contains("jaya grocer") || lower.contains("aeon") || lower.contains("watsons") || lower.contains("mr diy") || (lower.contains("买") && !lower.contains("吃")) {
             return ("exp_shopping", "exp_shop_daily", "购物-生活用品")
         }
         return ("exp_food", "exp_food_restaurant", "餐饮-餐厅")
     }
 
-    private func detectRelativeDate(in clause: String, now: Date) -> Date {
-        let cal = Calendar(identifier: .gregorian)
-        if clause.contains("昨天") {
-            return cal.date(byAdding: .day, value: -1, to: now) ?? now
+    private func cleanClauseNote(_ clause: String, removingAmountRange: Range<String.Index>? = nil) -> String {
+        var text = clause
+        if let removingAmountRange {
+            text.removeSubrange(removingAmountRange)
+        } else {
+            text = text.replacingOccurrences(
+                of: #"(?:RM|MYR|¥|\$)?\s*[0-9]+(?:\.[0-9]{1,2})?(?:元|块|令吉)?"#,
+                with: "",
+                options: .regularExpression
+            )
         }
-        if clause.contains("前天") {
-            return cal.date(byAdding: .day, value: -2, to: now) ?? now
+        let cleaned = text
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "，,；;。、")))
+        if cleaned.hasPrefix("的") && cleaned.count > 1 {
+            return String(cleaned.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        return now
-    }
-
-    private func cleanClauseNote(_ clause: String) -> String {
-        clause
-            .replacingOccurrences(of: #"(?:RM|MYR|¥|\$)?\s*[0-9]+(?:\.[0-9]{1,2})?(?:元|块|令吉)?"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned
     }
 }

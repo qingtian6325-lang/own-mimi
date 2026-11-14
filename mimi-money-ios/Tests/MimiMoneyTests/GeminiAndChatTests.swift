@@ -542,6 +542,36 @@ engine.saveAPISettings(key: "should-not-persist", baseURL: "https://example.com"
 XCTAssertNil(UserDefaults.standard.string(forKey: "mimi_llm_api_key"), "旧自定义 LLM Key 不得再写进 UserDefaults")
 }
 
+func testClassifierRoutesDateAndAmountQueriesToQuestion() {
+    XCTAssertEqual(BillMessageClassifier.classify("查看11月8日的消费记录", draftCount: 0), .question)
+    XCTAssertEqual(BillMessageClassifier.classify("帮我查一下超过100的账单", draftCount: 0), .question)
+}
+
+func testGeminiParseOccurredAtHandlesExtraFormatsAndPreservesNowTime() throws {
+    let tz = MimiNaturalLanguageDateParser.malaysiaTimeZone
+    var cal = MimiNaturalLanguageDateParser.calendar(in: tz)
+    cal.timeZone = tz
+    let now = try XCTUnwrap(cal.date(from: DateComponents(year: 2026, month: 11, day: 14, hour: 15, minute: 20)))
+
+    let dmy = try XCTUnwrap(GeminiBillDTO.parseOccurredAt("08/11/2026 14:30", now: now, timeZone: tz))
+    XCTAssertEqual(cal.dateComponents([.year, .month, .day, .hour, .minute], from: dmy), DateComponents(year: 2026, month: 11, day: 8, hour: 14, minute: 30))
+
+    let en12h = try XCTUnwrap(GeminiBillDTO.parseOccurredAt("10 Nov 2026 8:07 PM", now: now, timeZone: tz))
+    XCTAssertEqual(cal.dateComponents([.year, .month, .day, .hour, .minute], from: en12h), DateComponents(year: 2026, month: 11, day: 10, hour: 20, minute: 7))
+
+    let dateOnly = try XCTUnwrap(GeminiBillDTO.parseOccurredAt("2026-11-08", now: now, timeZone: tz))
+    XCTAssertEqual(cal.dateComponents([.year, .month, .day, .hour, .minute], from: dateOnly), DateComponents(year: 2026, month: 11, day: 8, hour: 15, minute: 20))
+}
+
+func testQuestionSystemPromptAndCrossGroupCategoryResolution() {
+    let prompt = LedgerContextBuilder.questionSystemPrompt()
+    XCTAssertFalse(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+    let resolved = DefaultCatalog.resolveCategoryIds(from: "购物-咖啡", type: .expense)
+    XCTAssertEqual(resolved.primaryId, "exp_food")
+    XCTAssertEqual(resolved.subId, "exp_food_coffee")
+}
+
 // MARK: - Helpers
 
 private func decodeDTO(fromGenerateContentResponse jsonText: String) throws -> GeminiBillDTO {

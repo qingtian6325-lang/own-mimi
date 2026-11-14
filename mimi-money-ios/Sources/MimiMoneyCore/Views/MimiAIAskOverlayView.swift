@@ -35,6 +35,7 @@ public struct MimiAIAskOverlayView: View {
     @State private var dragOffset: CGFloat = 0
     @FocusState private var inputFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let bottomAnchorID = "mimi-ai-overlay-bottom-anchor"
     #if canImport(Speech) && canImport(AVFoundation)
     @StateObject private var speechTranscriber = SpeechTranscriber()
     #endif
@@ -432,12 +433,22 @@ public struct MimiAIAskOverlayView: View {
                         thinkingRow
                             .id("thinking")
                     }
+                    Color.clear
+                        .frame(height: 1)
+                        .id(Self.bottomAnchorID)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            .onChange(of: aiEngine.messages.count) { _, _ in scrollToBottom(proxy) }
-            .onChange(of: aiEngine.isAnswering) { _, _ in scrollToBottom(proxy) }
+            .onAppear { scrollToBottom(proxy, animated: false) }
+            .onChange(of: isExpanded) { _, expanded in
+                if expanded { scrollToBottom(proxy, animated: true) }
+            }
+            .onChange(of: aiEngine.messages) { _, _ in scrollToBottom(proxy, animated: true) }
+            .onChange(of: aiEngine.isAnswering) { _, _ in scrollToBottom(proxy, animated: true) }
+            .onChange(of: inputFocused) { _, focused in
+                if focused { scrollToBottom(proxy, animated: true) }
+            }
         }
     }
 
@@ -730,15 +741,21 @@ public struct MimiAIAskOverlayView: View {
         aiEngine.sendComposed(text: text, imageDataList: images, store: store)
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        DispatchQueue.main.async {
-            withAnimation(MimiMotion.quick(reduceMotion: reduceMotion)) {
-                if aiEngine.isAnswering {
-                    proxy.scrollTo("thinking", anchor: .bottom)
-                } else if let last = aiEngine.messages.last {
-                    proxy.scrollTo(last.id, anchor: .bottom)
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
+        let performScroll = {
+            if animated {
+                withAnimation(MimiMotion.quick(reduceMotion: reduceMotion)) {
+                    proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                 }
+            } else {
+                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
             }
+        }
+        DispatchQueue.main.async {
+            performScroll()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            performScroll()
         }
     }
 }
