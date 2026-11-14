@@ -77,6 +77,13 @@ public struct HomeRecordView: View {
         return min(1.0, max(0.0, monthlySpent / store.monthlyBudgetTotal))
     }
 
+    /// 分类预算列表：使用巴仙高 → 低。
+    private var sortedCategoryBudgetsByUsage: [CategoryBudgetItem] {
+        CategoryBudgetUsageSort.sortedByUsageDescending(store.categoryBudgets) { item in
+            store.categorySpent(for: item.categoryName, in: currentPeriod)
+        }
+    }
+
     private var spentPercentInt: Int {
         Int((spentRatio * 100.0).rounded())
     }
@@ -461,7 +468,7 @@ public struct HomeRecordView: View {
 
             if isCategoryBudgetExpanded {
                 VStack(spacing: 10) {
-                    ForEach(store.categoryBudgets) { item in
+                    ForEach(sortedCategoryBudgetsByUsage) { item in
                         let spent = store.categorySpent(for: item.categoryName, in: currentPeriod)
                         let rem = item.monthlyLimit - spent
                         let ratio = item.monthlyLimit > 0 ? min(1.0, spent / item.monthlyLimit) : 0

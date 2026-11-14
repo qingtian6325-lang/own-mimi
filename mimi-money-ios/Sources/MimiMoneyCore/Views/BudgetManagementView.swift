@@ -88,6 +88,13 @@ public struct BudgetManagementView: View {
         store.categoryBudgets.reduce(0.0) { $0 + $1.monthlyLimit }
     }
 
+    /// 已分类预算：使用巴仙高 → 低。
+    private var sortedCategoryBudgetsByUsage: [CategoryBudgetItem] {
+        CategoryBudgetUsageSort.sortedByUsageDescending(store.categoryBudgets) { item in
+            store.categorySpent(for: item.categoryName, in: currentPeriod)
+        }
+    }
+
     private var unbudgetedCategories: [CategoryGroup] {
         let budgetedNames = Set(store.categoryBudgets.map(\.categoryName))
         return store.expenseCategories.filter { !budgetedNames.contains($0.name) }
@@ -450,7 +457,7 @@ public struct BudgetManagementView: View {
             }
 
             if categoryBudgetsExpanded {
-                ForEach(store.categoryBudgets) { item in
+                ForEach(sortedCategoryBudgetsByUsage) { item in
                     let spent = store.categorySpent(for: item.categoryName, in: currentPeriod)
                     let rem = item.monthlyLimit - spent
                     let ratio = item.monthlyLimit > 0 ? min(1.0, spent / item.monthlyLimit) : 0
