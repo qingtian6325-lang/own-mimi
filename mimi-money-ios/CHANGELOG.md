@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.19] - 2026-11-14
+
+### 🎯 Highlights
+- **已分类预算按使用巴仙排序**：`CategoryBudgetUsageSort`；预算管理「已分类预算」与首页「分类预算」按使用比例从高到低；零限额安全；单测覆盖超支 / 平局 / 零额。
+- **发版**：`VERSION` / Intent 默认版本升至 1.3.19。
+
 ## [v1.3.18] - 2026-11-14
 
 ### 🎯 Highlights

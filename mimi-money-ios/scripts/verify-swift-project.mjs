@@ -551,6 +551,19 @@ function verifyTask6() {
     );
   }
 
+  // v1.3.19: categorized budgets sorted by usage % high → low.
+  const budgetUsageSort = assertFileExists('Sources/MimiMoneyCore/Services/CategoryBudgetUsageSort.swift');
+  assertContains(budgetUsageSort, 'sortedByUsageDescending', 'CategoryBudgetUsageSort.swift');
+  assertContains(budgetUsageSort, 'usageRatio', 'CategoryBudgetUsageSort.swift');
+  const budgetUsageSortTests = assertFileExists('Tests/MimiMoneyTests/CategoryBudgetUsageSortTests.swift');
+  assertContains(budgetUsageSortTests, 'testSortsHighestUsagePercentFirst', 'CategoryBudgetUsageSortTests.swift');
+  const budgetMgmt = assertFileExists('Sources/MimiMoneyCore/Views/BudgetManagementView.swift');
+  assertContains(budgetMgmt, 'sortedCategoryBudgetsByUsage', 'BudgetManagementView.swift');
+  assertContains(budgetMgmt, 'CategoryBudgetUsageSort.sortedByUsageDescending', 'BudgetManagementView.swift');
+  const homeRecord = assertFileExists('Sources/MimiMoneyCore/Views/HomeRecordView.swift');
+  assertContains(homeRecord, 'sortedCategoryBudgetsByUsage', 'HomeRecordView.swift');
+  assertContains(homeRecord, 'CategoryBudgetUsageSort.sortedByUsageDescending', 'HomeRecordView.swift');
+
   const aiOverlay = assertFileExists('Sources/MimiMoneyCore/Views/MimiAIAskOverlayView.swift');
   checkBalancedBraces(aiOverlay, 'MimiAIAskOverlayView.swift');
   for (const label of [
