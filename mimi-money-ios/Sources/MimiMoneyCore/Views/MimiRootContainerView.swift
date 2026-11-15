@@ -61,7 +61,7 @@ public struct MimiRootContainerView: View {
                     }
                 },
                 onSelectTransaction: { tx in
-                    pushOpen { activeBillForEdit = tx }
+                    activeBillForEdit = tx
                 },
                 onOpenBudgetManager: {
                     pushOpen { showBudgetManager = true }
@@ -261,6 +261,9 @@ public struct MimiRootContainerView: View {
                         }
                     }
                 )
+                .mimiEdgeSwipeBack {
+                    pushClose { showStatsView = false }
+                }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(40)
             }
@@ -270,10 +273,7 @@ public struct MimiRootContainerView: View {
                     store: store,
                     onDismiss: { pushClose { showAllRecordsCalendar = false } },
                     onSelectTransaction: { tx in
-                        pushClose { showAllRecordsCalendar = false }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + pageHandoffDelay) {
-                            pushOpen { activeBillForEdit = tx }
-                        }
+                        activeBillForEdit = tx
                     },
                     onOpenStats: {
                         pushClose { showAllRecordsCalendar = false }
@@ -300,6 +300,9 @@ public struct MimiRootContainerView: View {
                         }
                     }
                 )
+                .mimiEdgeSwipeBack {
+                    pushClose { showAllRecordsCalendar = false }
+                }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(41)
             }
@@ -310,6 +313,9 @@ public struct MimiRootContainerView: View {
                     aiEngine: aiEngine,
                     onDismiss: { pushClose { showAssetsManager = false } }
                 )
+                .mimiEdgeSwipeBack {
+                    pushClose { showAssetsManager = false }
+                }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(42)
             }
@@ -319,6 +325,9 @@ public struct MimiRootContainerView: View {
                     store: store,
                     onDismiss: { pushClose { showBudgetManager = false } }
                 )
+                .mimiEdgeSwipeBack {
+                    pushClose { showBudgetManager = false }
+                }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(43)
             }
@@ -328,6 +337,9 @@ public struct MimiRootContainerView: View {
                     store: store,
                     onDismiss: { pushClose { showCategoryManager = false } }
                 )
+                .mimiEdgeSwipeBack {
+                    pushClose { showCategoryManager = false }
+                }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(44)
             }
@@ -339,10 +351,7 @@ public struct MimiRootContainerView: View {
                     initialSectionTitle: settingsTitle,
                     onDismiss: { pushClose { activeSettingsTitle = nil } },
                     onModifyTransactionFromPopup: { tx in
-                        pushClose { activeSettingsTitle = nil }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + pageHandoffDelay) {
-                            pushOpen { activeBillForEdit = tx }
-                        }
+                        activeBillForEdit = tx
                     }
                 )
                 .mimiEdgeSwipeBack {
@@ -350,27 +359,6 @@ public struct MimiRootContainerView: View {
                 }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(45)
-            }
-
-            if let bill = activeBillForEdit {
-                BillDetailSheetView(
-                    store: store,
-                    transaction: bill,
-                    onDismiss: {
-                        pushClose {
-                            activeBillForEdit = nil
-                            store.pendingEditTransactionId = nil
-                        }
-                    }
-                )
-                .mimiEdgeSwipeBack {
-                    pushClose {
-                        activeBillForEdit = nil
-                        store.pendingEditTransactionId = nil
-                    }
-                }
-                .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
-                .zIndex(50)
             }
         }
         // 不用整棵 ZStack 挂 .animation(value:)——会连带首页一起重绘，又卡又糊。
@@ -390,7 +378,7 @@ public struct MimiRootContainerView: View {
                 onEditRecognizedTransaction: { savedTx in
                     showRecordSheet = false
                     DispatchQueue.main.asyncAfter(deadline: .now() + sheetHandoffDelay) {
-                        pushOpen { activeBillForEdit = savedTx }
+                        activeBillForEdit = savedTx
                     }
                 },
                 onOpenImportExport: {
@@ -414,6 +402,17 @@ public struct MimiRootContainerView: View {
             // Full-screen bookkeeping; RecordAndAISheetView owns axis-lock dismiss (v1.3.13).
             .mimiInteractiveSheet(detents: [.large])
         }
+        .sheet(item: $activeBillForEdit) { bill in
+            BillDetailSheetView(
+                store: store,
+                transaction: bill,
+                onDismiss: {
+                    activeBillForEdit = nil
+                    store.pendingEditTransactionId = nil
+                }
+            )
+            .mimiInteractiveSheet(detents: [.large])
+        }
         #if canImport(UIKit)
         .sheet(isPresented: $showHomeAlbumPicker) {
             PHPickerImageView { imageData in
@@ -431,7 +430,7 @@ public struct MimiRootContainerView: View {
         .onChange(of: store.pendingEditTransactionId) { _, newId in
             if let id = newId,
                let match = store.transactions.first(where: { $0.id == id }) {
-                pushOpen { activeBillForEdit = match }
+                activeBillForEdit = match
             }
         }
         .onChange(of: store.isRecordSheetPresented) { _, presented in
@@ -445,7 +444,7 @@ public struct MimiRootContainerView: View {
             if ShortcutActionCoordinator.handleIncomingURL(url, in: store),
                let id = store.pendingEditTransactionId,
                let match = store.transactions.first(where: { $0.id == id }) {
-                pushOpen { activeBillForEdit = match }
+                activeBillForEdit = match
             }
         }
         .environmentObject(languageStore)

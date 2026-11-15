@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.21] - 2026-11-15
+
+### 🎯 Highlights
+- **修复账单详情关闭过渡（向下滑出）**：将「账单详情」恢复为标准原生 Sheet 模式，点击左上角 `chevron.down` 向下箭头或直接向下滑动均顺畅**向下滑出**退出，消除原先向右飞走的违和感。
+- **全二级页面边缘侧滑返回（Edge Swipe Back）**：统计图表、全部记录日历、资产管理、预算管理、分类管理全部统一补齐从左边缘向右侧滑返回手势。
+- **首页流水 `LazyVStack` 惰性加载**：账单流水卡片改为惰性加载，大幅削减首屏视图实例化开销，长列表滑动达到 120Hz 满帧顺滑。
+- **账单按天聚合 O(1) 内存缓存**：在 `MimiStore` 建立每日聚合账单缓存，仅在数据变动时重算，避免每次界面重绘在主线程消耗 CPU。
+- **发版**：`VERSION` / Intent 默认版本升至 1.3.21。
+
 ## [v1.3.20] - 2026-11-15
 
 ### 🎯 Highlights

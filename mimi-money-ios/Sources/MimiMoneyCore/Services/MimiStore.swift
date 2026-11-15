@@ -68,9 +68,13 @@ public final class MimiStore: ObservableObject {
     public static let shared = MimiStore()
 
     @Published public var ledgers: [LedgerItem]
-    @Published public var currentLedgerId: String
+    @Published public var currentLedgerId: String {
+        didSet { cachedGroupedTransactions = nil }
+    }
     @Published public var accounts: [AccountItem]
-    @Published public var transactions: [TransactionItem]
+    @Published public var transactions: [TransactionItem] {
+        didSet { cachedGroupedTransactions = nil }
+    }
     @Published public var auditLogs: [AccountAuditLog]
     @Published public var expenseCategories: [CategoryGroup]
     @Published public var incomeCategories: [CategoryGroup]
@@ -92,6 +96,7 @@ public final class MimiStore: ObservableObject {
     private let storageURL: URL
     private let pendingScansURL: URL
     private static var receiptMemoryCache: [String: Data] = [:]
+    private var cachedGroupedTransactions: [(date: Date, items: [TransactionItem])]?
 
     // MARK: - Receipt Image Persistence
     public var receiptsDirectoryURL: URL {
@@ -1202,6 +1207,9 @@ public final class MimiStore: ObservableObject {
     }
 
     public func groupedTransactionsByDay() -> [(date: Date, items: [TransactionItem])] {
+        if let cached = cachedGroupedTransactions {
+            return cached
+        }
         let cal = Calendar(identifier: .gregorian)
         let filtered = transactions.filter { $0.ledgerId == currentLedgerId }
         var buckets: [Date: [TransactionItem]] = [:]
@@ -1209,9 +1217,11 @@ public final class MimiStore: ObservableObject {
             let dayStart = cal.startOfDay(for: tx.date)
             buckets[dayStart, default: []].append(tx)
         }
-        return buckets
+        let result = buckets
             .map { (date: $0.key, items: $0.value.sorted { $0.date > $1.date }) }
             .sorted { $0.date > $1.date }
+        cachedGroupedTransactions = result
+        return result
     }
 
     public func auditLogs(for accountName: String) -> [AccountAuditLog] {

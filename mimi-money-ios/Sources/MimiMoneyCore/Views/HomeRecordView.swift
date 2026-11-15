@@ -624,8 +624,10 @@ public struct HomeRecordView: View {
                 .background(RoundedRectangle(cornerRadius: MimiTheme.cardCornerRadius).fill(MimiTheme.cardBackground))
             } else {
                 // Stable day ids — avoid offset-based ForEach rebuild hitch on swipe-delete.
-                ForEach(groups, id: \.date) { group in
-                    dayTransactionGroupCard(date: group.date, items: group.items)
+                LazyVStack(spacing: MimiTheme.homeCardSpacing) {
+                    ForEach(groups, id: \.date) { group in
+                        dayTransactionGroupCard(date: group.date, items: group.items)
+                    }
                 }
             }
         }
