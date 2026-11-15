@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.20] - 2026-11-15
+
+### 🎯 Highlights
+- **触控极速响应与跟手回弹**：重构 `MimiPressableButtonStyle` 为 0.04s 瞬时响应与 0.10s 极速回弹，彻底消除慢速弹性缩放带来的黏滞与软糖感。
+- **修复账单流水吞点击 Bug**：优化 `HomeRecordView` 滑动手势判定，避免垂直微晃误触滑动导致点击被丢弃，确保点击账单瞬时打开详情。
+- **全局物理触感震动（Taptic Engine）**：新增 `MimiHaptics` 服务，数字键盘敲击、分类切换、账单选择与预算日历操作全面接入轻快物理微震反馈。
+- **全触控盲区消除**：键盘按键、分类九宫格、二级分类单元格与抽屉菜单全面扩展点击判定区域（`contentShape`），确保边缘与缝隙点按 100% 灵敏响应。
+- **发版**：`VERSION` / Intent 默认版本升至 1.3.20。
+
 ## [v1.3.19] - 2026-11-15
 
 ### 🎯 Highlights
