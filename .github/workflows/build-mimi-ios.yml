@@ -47,8 +47,6 @@ jobs:
         run: |
           IOS_SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
           echo "IOS_SDK_PATH=${IOS_SDK_PATH}" >> "$GITHUB_ENV"
-          export SDKROOT="${IOS_SDK_PATH}"
-          echo "SDKROOT=${IOS_SDK_PATH}" >> "$GITHUB_ENV"
           # Step 1: compile the package normally (produces the executable).
           swift build -c release --product MimiMoneyApp \
             --triple arm64-apple-ios17.0 \

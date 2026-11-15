@@ -902,26 +902,19 @@ public struct ScanScreenshotIntent: AppIntent {
                 ScanConfirmationCardView(transaction: transaction)
             }
         } else {
-            try await legacyRequestScanConfirmation(for: transaction)
+            let amountText = String(
+                format: "%@RM%.2f",
+                transaction.type == .expense ? "-" : "+",
+                transaction.amount
+            )
+            // Pre-macOS-15 / iOS-17 fallback: older overload (confirmationActionName).
+            // The actionName: API needs macOS 15+ and cannot live in this else branch
+            // while Package.swift still targets macOS(.v14) for host unit tests.
+            try await requestConfirmation(
+                result: .result(dialog: "确认记账：\(transaction.categoryPath) \(amountText)（\(transaction.accountName)）？"),
+                confirmationActionName: .log
+            )
         }
-    }
-
-    @available(iOS, deprecated: 18.0)
-    @available(macOS, deprecated: 15.0)
-    @MainActor
-    private func legacyRequestScanConfirmation(for transaction: TransactionItem) async throws {
-        let amountText = String(
-            format: "%@RM%.2f",
-            transaction.type == .expense ? "-" : "+",
-            transaction.amount
-        )
-        // Pre-macOS-15 / iOS-17 fallback: older overload (confirmationActionName).
-        // The actionName: API needs macOS 15+ and cannot live in this else branch
-        // while Package.swift still targets macOS(.v14) for host unit tests.
-        try await requestConfirmation(
-            result: .result(dialog: "确认记账：\(transaction.categoryPath) \(amountText)（\(transaction.accountName)）？"),
-            confirmationActionName: .log
-        )
     }
 }
 
