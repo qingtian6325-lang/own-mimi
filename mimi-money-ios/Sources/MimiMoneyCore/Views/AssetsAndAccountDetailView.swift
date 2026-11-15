@@ -37,12 +37,15 @@ public struct AssetsAndAccountDetailView: View {
         }
     }
 
-    private var selectedAccountBinding: Binding<String?> {
+    private var selectedAccountBinding: Binding<AccountItem?> {
         Binding(
-            get: { nav.selectedAccountID },
+            get: {
+                guard let id = nav.selectedAccountID else { return nil }
+                return store.accounts.first(where: { $0.id == id })
+            },
             set: { newValue in
-                if let id = newValue {
-                    dispatch(.openAccount(id))
+                if let acc = newValue {
+                    dispatch(.openAccount(acc.id))
                 } else {
                     // Interactive pop / destination clear: pop detail only — never 记账/home.
                     var next = nav
@@ -51,6 +54,20 @@ public struct AssetsAndAccountDetailView: View {
                     nav = next
                 }
             }
+        )
+    }
+
+    private var rootBillForDetailBinding: Binding<TransactionItem?> {
+        Binding(
+            get: { nav.selectedAccountID == nil ? billForDetail : nil },
+            set: { billForDetail = $0 }
+        )
+    }
+
+    private var accountDetailBillBinding: Binding<TransactionItem?> {
+        Binding(
+            get: { nav.selectedAccountID != nil ? billForDetail : nil },
+            set: { billForDetail = $0 }
         )
     }
 
@@ -135,6 +152,10 @@ public struct AssetsAndAccountDetailView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .mimiInteractivePopGestureEnabled()
+            .mimiEdgeSwipeBack {
+                dispatch(.back)
+            }
             .toolbar {
                 // Prefer topBarLeading on iOS so detail back ≠ overlay dismiss → 记账.
                 ToolbarItem(placement: backToolbarPlacement) {
@@ -165,62 +186,15 @@ public struct AssetsAndAccountDetailView: View {
                     }
                 }
             }
-            .navigationDestination(item: selectedAccountBinding) { accountID in
-                if let account = store.accounts.first(where: { $0.id == accountID }) {
-                    accountDetailSheet(for: account)
-                } else {
-                    Text("账户不存在", bundle: .mimiModule)
-                        .foregroundColor(MimiTheme.textMuted)
-                }
+            .sheet(item: selectedAccountBinding) { account in
+                accountDetailSheet(for: account)
+                    .mimiInteractiveSheet(detents: [.large])
             }
-            // 账单详情挂在资产 NavigationStack 上，避免账户详情再嵌套 sheet
-            .sheet(item: $billForDetail) { tx in
+            // 账单详情供根资产页面（待报销/借还款）点击账单查看
+            .sheet(item: rootBillForDetailBinding) { tx in
                 BillDetailSheetView(store: store, transaction: tx) {
                     billForDetail = nil
                 }
-                .mimiInteractiveSheet()
-            }
-            // sheet(item:) + unique presentationID so 转账 always mounts on transfer tab
-            // (stale @State selectedTab / UIPageViewController caused 支出 after dismiss).
-            // .id on content + presentationID into the sheet forces a full rebuild each open.
-            .sheet(item: entryRouteBinding) { route in
-                RecordAndAISheetView(
-                    store: store,
-                    aiEngine: aiEngine,
-                    initialAIMode: false,
-                    initialTab: AccountEntrySheetBootstrap.intendedTab(for: route),
-                    presentationID: route.presentationID,
-                    initialAccountName: route.accountName,
-                    onDismiss: { dispatch(.dismissEntry) },
-                    onOpenCategorySettings: {
-                        dispatch(.dismissEntry)
-                        // Category manager is opened from root drawer; from assets entry just dismiss.
-                    },
-                    onEditRecognizedTransaction: { tx in
-                        dispatch(.dismissEntry)
-                        billForDetail = tx
-                    }
-                )
-                .id(route.presentationID)
-                // Full-screen 记账/转账; axis lock lives inside RecordAndAISheetView (v1.3.13).
-                .mimiInteractiveSheet(detents: [.large])
-            }
-            .sheet(item: $editAccountRoute) { route in
-                EditAccountView(
-                    store: store,
-                    accountId: route.id,
-                    onDismiss: { editAccountRoute = nil },
-                    onDeleted: {
-                        // Pop detail only — deleting an account must never dismiss 资产 → 记账.
-                        if nav.selectedAccountID == route.id {
-                            var next = nav
-                            next.selectedAccountID = nil
-                            next.entryRoute = nil
-                            nav = next
-                        }
-                        editAccountRoute = nil
-                    }
-                )
                 .mimiInteractiveSheet()
             }
             .sheet(isPresented: $showPendingReimbursementSheet) {
@@ -545,7 +519,8 @@ public struct AssetsAndAccountDetailView: View {
             return isSource || isTarget
         }
 
-        return ScrollView(.vertical, showsIndicators: false) {
+        return NavigationStack {
+            ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 14) {
                     // Gold cream account header: icon · name · 自定义余额 · … / 余额 / 记账·转账
                     VStack(alignment: .leading, spacing: 14) {
@@ -721,33 +696,68 @@ public struct AssetsAndAccountDetailView: View {
                 .padding(16)
                 .padding(.bottom, 24)
             }
-        .background(MimiTheme.background.ignoresSafeArea())
-        .navigationTitle(MimiL10n.string("账户详情"))
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .navigationBarBackButtonHidden(true)
-        .mimiInteractivePopGestureEnabled()
-        .mimiEdgeSwipeBack {
-            dispatch(.back)
-        }
-        .toolbar {
-            // Same leading placement as assets root, but action goes through nav.back
-            // so left→right→left only pops detail — never the 资产 overlay.
-            // Edge-swipe-back restored via mimiInteractivePopGestureEnabled (hidden system back).
-            ToolbarItem(placement: backToolbarPlacement) {
-                Button {
-                    dispatch(.back)
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .mimiFont(15, weight: .semibold)
-                        .foregroundColor(MimiTheme.textPrimary)
-                        .frame(width: MimiHIG.minTouch, height: MimiHIG.minTouch)
-                        .contentShape(Rectangle())
+            .background(MimiTheme.background.ignoresSafeArea())
+            .navigationTitle(MimiL10n.string("账户详情"))
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dispatch(.back)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .mimiFont(15, weight: .bold)
+                            .foregroundColor(MimiTheme.textPrimary)
+                            .frame(width: MimiHIG.minTouch, height: MimiHIG.minTouch)
+                            .contentShape(Rectangle())
+                    }
+                    .mimiPressable()
+                    .accessibilityLabel(MimiL10n.string("关闭"))
                 }
-                .mimiPressable()
-                .accessibilityLabel(MimiL10n.string("返回资产"))
-                .accessibilityHint(MimiL10n.string("返回账户列表，不会退出到记账首页"))
+            }
+            .sheet(item: accountDetailBillBinding) { tx in
+                BillDetailSheetView(store: store, transaction: tx) {
+                    billForDetail = nil
+                }
+                .mimiInteractiveSheet(detents: [.large])
+            }
+            .sheet(item: entryRouteBinding) { route in
+                RecordAndAISheetView(
+                    store: store,
+                    aiEngine: aiEngine,
+                    initialAIMode: false,
+                    initialTab: AccountEntrySheetBootstrap.intendedTab(for: route),
+                    presentationID: route.presentationID,
+                    initialAccountName: route.accountName,
+                    onDismiss: { dispatch(.dismissEntry) },
+                    onOpenCategorySettings: {
+                        dispatch(.dismissEntry)
+                    },
+                    onEditRecognizedTransaction: { tx in
+                        dispatch(.dismissEntry)
+                        billForDetail = tx
+                    }
+                )
+                .id(route.presentationID)
+                .mimiInteractiveSheet(detents: [.large])
+            }
+            .sheet(item: $editAccountRoute) { route in
+                EditAccountView(
+                    store: store,
+                    accountId: route.id,
+                    onDismiss: { editAccountRoute = nil },
+                    onDeleted: {
+                        if nav.selectedAccountID == route.id {
+                            var next = nav
+                            next.selectedAccountID = nil
+                            next.entryRoute = nil
+                            nav = next
+                        }
+                        editAccountRoute = nil
+                    }
+                )
+                .mimiInteractiveSheet()
             }
         }
     }

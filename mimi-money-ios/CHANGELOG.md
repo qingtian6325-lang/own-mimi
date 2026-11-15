@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.24] - 2026-11-15
+
+### 🎯 Highlights
+- **账户详情重构为向下滑动 Sheet（向下箭头与下滑手势退出）**：按照用户期望与卡片详情交互心智，将「账户详情」二级子页面彻底改造为 iOS 原生下拉 Sheet（从底部滑入展示）。顶栏左侧配备 `chevron.down` 向下箭头图标，支持手指从顶部向下滑动或点击向下箭头直接退出，顺畅向下滑出并停留在资产账户列表，从视觉与物理手势上彻底消除横向返回手势误退主页的问题。
+- **账户详情内嵌套操作与子级 Sheet 顺畅交互**：账户详情内部点击单条流水打开账单详情、点击记账/转账打开记账面板、点击「…」打开编辑账户，均通过独立二级 Sheet 呈现，子弹窗关闭后自然留在当前账户详情中，层级清晰稳定。
+- **发版**：`VERSION` / Intent 默认版本升至 1.3.24。
+
 ## [v1.3.23] - 2026-11-15
 
 ### 🎯 Highlights
