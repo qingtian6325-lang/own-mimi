@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.23] - 2026-11-15
+
+### 🎯 Highlights
+- **修复二级页面边缘右滑返回层级**：彻底解决账户详情等二级子页面从屏幕边缘向右滑时直接退到记账主页的问题。移除根容器外层拦截手势，在 `accountDetailSheet` 与 `CategoryBillsListView` 正确接入局部返回手势，右滑自然退回上一个界面（账户列表或统计图表），符合原生 iOS 页面层级导航。
+- **修复统计页「年」及多月/自定义区间分类下钻账单显示**：彻底修复统计页选择「年」或跨多个月份/超过记账开始日期时，点击分类卡片进入后显示为空白（"本月暂无账单"）的 Bug。将外层计算好的所选统计区间账单直接透传给分类明细页，确保点进分类后 100% 完整展示该区间的所有账单记录及汇总金额。
+- **优化自定义日期全天范围**：统计页「自定义」日期筛选统一按 `00:00:00` 至 `23:59:59` 完整自然日区间检索，避免当天或起始日部分账单因时间截断被遗漏。
+- **发版**：`VERSION` / Intent 默认版本升至 1.3.23。
+
 ## [v1.3.22] - 2026-11-15
 
 ### 🎯 Highlights

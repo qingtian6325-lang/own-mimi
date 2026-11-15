@@ -8,6 +8,11 @@ public struct CategoryBillsListView: View {
     public var transactionType: TransactionType
     public var year: Int
     public var month: Int
+    /// Optional: explicitly pass the scoped transactions for the selected period (周/月/年/自定义).
+    /// If nil, falls back to store.transactions filtered by (year, month).
+    public var scopedTransactions: [TransactionItem]?
+    /// Optional custom display label for the period (e.g. "2026年 全年" or "2025/10/01 ~ 2026/11/15").
+    public var periodRangeLabel: String?
     public var onSelectTransaction: (TransactionItem) -> Void
     public var onDismiss: () -> Void
 
@@ -20,6 +25,8 @@ public struct CategoryBillsListView: View {
         transactionType: TransactionType,
         year: Int,
         month: Int,
+        scopedTransactions: [TransactionItem]? = nil,
+        periodRangeLabel: String? = nil,
         onSelectTransaction: @escaping (TransactionItem) -> Void,
         onDismiss: @escaping () -> Void
     ) {
@@ -28,18 +35,27 @@ public struct CategoryBillsListView: View {
         self.transactionType = transactionType
         self.year = year
         self.month = month
+        self.scopedTransactions = scopedTransactions
+        self.periodRangeLabel = periodRangeLabel
         self.onSelectTransaction = onSelectTransaction
         self.onDismiss = onDismiss
     }
 
-    private var cal: Calendar { Calendar(identifier: .gregorian) }
+    private var cal: Calendar { MimiCalendar.gregorian }
 
-    private var monthTransactions: [TransactionItem] {
-        store.transactions.filter { tx in
+    private var categoryTransactions: [TransactionItem] {
+        let baseList: [TransactionItem]
+        if let scoped = scopedTransactions {
+            baseList = scoped
+        } else {
+            baseList = store.transactions.filter { tx in
+                let y = cal.component(.year, from: tx.date)
+                let m = cal.component(.month, from: tx.date)
+                return y == year && m == month
+            }
+        }
+        return baseList.filter { tx in
             guard tx.type == transactionType else { return false }
-            let y = cal.component(.year, from: tx.date)
-            let m = cal.component(.month, from: tx.date)
-            guard y == year && m == month else { return false }
             let primary = tx.categoryPath.components(separatedBy: "-").first ?? tx.categoryPath
             guard primary == categoryName else { return false }
             if let sub = selectedSubcategory, showSubOnly {
@@ -51,11 +67,12 @@ public struct CategoryBillsListView: View {
         .sorted { $0.date > $1.date }
     }
 
-    private var monthTotal: Double {
-        monthTransactions.reduce(0.0) { $0 + $1.amount }
+    private var totalAmount: Double {
+        categoryTransactions.reduce(0.0) { $0 + $1.amount }
     }
 
     private var previousMonthTotal: Double {
+        guard scopedTransactions == nil else { return 0 }
         let comps = DateComponents(year: year, month: month, day: 1)
         guard let thisMonth = cal.date(from: comps),
               let prev = cal.date(byAdding: .month, value: -1, to: thisMonth) else { return 0 }
@@ -72,14 +89,15 @@ public struct CategoryBillsListView: View {
     }
 
     private var vsLastMonthPercent: Double? {
-        guard previousMonthTotal > 0.009 else { return monthTotal > 0 ? nil : 0 }
-        return ((monthTotal - previousMonthTotal) / previousMonthTotal) * 100.0
+        guard scopedTransactions == nil else { return nil }
+        guard previousMonthTotal > 0.009 else { return totalAmount > 0 ? nil : 0 }
+        return ((totalAmount - previousMonthTotal) / previousMonthTotal) * 100.0
     }
 
     private var subcategoryBreakdown: [(name: String, icon: String, amount: Double, percent: Double, count: Int)] {
-        let total = max(0.009, monthTotal)
+        let total = max(0.009, totalAmount)
         var map: [String: (icon: String, sum: Double, count: Int)] = [:]
-        for tx in monthTransactions where selectedSubcategory == nil || !showSubOnly {
+        for tx in categoryTransactions where selectedSubcategory == nil || !showSubOnly {
             let parts = tx.categoryPath.components(separatedBy: "-")
             let leaf = parts.count > 1 ? parts[1] : parts[0]
             let prev = map[leaf] ?? (icon: tx.iconName, sum: 0, count: 0)
@@ -91,14 +109,17 @@ public struct CategoryBillsListView: View {
     }
 
     private var dayGroups: [(date: Date, items: [TransactionItem])] {
-        let dict = Dictionary(grouping: monthTransactions) { tx in
+        let dict = Dictionary(grouping: categoryTransactions) { tx in
             cal.startOfDay(for: tx.date)
         }
         return dict.keys.sorted(by: >).map { ($0, dict[$0] ?? []) }
     }
 
     private var rangeLabel: String {
-        String(format: "%04d-%02d-01—%04d-%02d-%02d", year, month, year, month, daysInMonth)
+        if let custom = periodRangeLabel, !custom.isEmpty {
+            return custom
+        }
+        return String(format: "%04d-%02d-01—%04d-%02d-%02d", year, month, year, month, daysInMonth)
     }
 
     private var daysInMonth: Int {
@@ -149,6 +170,14 @@ public struct CategoryBillsListView: View {
         }
         // Parent also applies this when using navigationBarBackButtonHidden; safe to stack.
         .mimiInteractivePopGestureEnabled()
+        .mimiEdgeSwipeBack {
+            if showSubOnly {
+                showSubOnly = false
+                selectedSubcategory = nil
+            } else {
+                onDismiss()
+            }
+        }
     }
 
     private var displayTitle: String {
@@ -162,14 +191,14 @@ public struct CategoryBillsListView: View {
                 Text(transactionType == .expense ? "支出" : "收入")
                     .mimiFont(13)
                     .foregroundColor(MimiTheme.textSecondary)
-                Text(MimiTheme.formatRM(monthTotal))
+                Text(MimiTheme.formatRM(totalAmount))
                     .mimiFont(26, weight: .bold, design: .rounded)
                     .foregroundColor(transactionType == .expense ? MimiTheme.expenseBlue : MimiTheme.incomeOrange)
-                if let pct = vsLastMonthPercent {
+                if scopedTransactions == nil, let pct = vsLastMonthPercent {
                     Text(String(format: "和上月比 %@ %.0f%%", pct >= 0 ? "↑" : "↓", abs(pct)))
                         .mimiFont(12)
                         .foregroundColor(MimiTheme.textMuted)
-                } else if previousMonthTotal < 0.009 && monthTotal > 0 {
+                } else if scopedTransactions == nil && previousMonthTotal < 0.009 && totalAmount > 0 {
                     Text("和上月比 ↑ —", bundle: .mimiModule)
                         .mimiFont(12)
                         .foregroundColor(MimiTheme.textMuted)
@@ -181,10 +210,10 @@ public struct CategoryBillsListView: View {
                 Text("账单数", bundle: .mimiModule)
                     .mimiFont(13)
                     .foregroundColor(MimiTheme.textSecondary)
-                Text("\(monthTransactions.count)")
+                Text("\(categoryTransactions.count)")
                     .mimiFont(26, weight: .bold, design: .rounded)
                     .foregroundColor(MimiTheme.textPrimary)
-                Text("本月记录", bundle: .mimiModule)
+                Text(scopedTransactions != nil ? "所选区间" : "本月记录", bundle: .mimiModule)
                     .mimiFont(12)
                     .foregroundColor(MimiTheme.textMuted)
             }
@@ -259,7 +288,7 @@ public struct CategoryBillsListView: View {
                 .mimiFont(13, weight: .medium)
                 .foregroundColor(MimiTheme.textSecondary)
             Spacer()
-            Text("\(transactionType == .expense ? "月支出" : "月收入")\(MimiTheme.formatRM(monthTotal))")
+            Text("\(transactionType == .expense ? "合计支出" : "合计收入") \(MimiTheme.formatRM(totalAmount))")
                 .mimiFont(13, weight: .medium)
                 .foregroundColor(MimiTheme.textSecondary)
         }
@@ -269,7 +298,7 @@ public struct CategoryBillsListView: View {
     private var billsSection: some View {
         Group {
             if dayGroups.isEmpty {
-                Text("本月暂无账单", bundle: .mimiModule)
+                Text(scopedTransactions != nil ? "所选区间暂无账单" : "本月暂无账单", bundle: .mimiModule)
                     .mimiFont(14)
                     .foregroundColor(MimiTheme.textMuted)
                     .frame(maxWidth: .infinity)
@@ -358,11 +387,16 @@ public struct CategoryBillsListView: View {
     }
 
     private func formatDayHeader(_ date: Date) -> String {
+        let y = cal.component(.year, from: date)
         let m = cal.component(.month, from: date)
         let d = cal.component(.day, from: date)
         let weekday = cal.component(.weekday, from: date)
         let names = ["", "周日", "周一", "周二", "周三", "周四", "周五", "周六"]
         let w = (weekday >= 1 && weekday <= 7) ? names[weekday] : ""
+        let currentYear = cal.component(.year, from: Date())
+        if y != currentYear {
+            return "\(y)年\(m)月\(d)日 (\(w))"
+        }
         return "\(m)月\(d)日 (\(w))"
     }
 }

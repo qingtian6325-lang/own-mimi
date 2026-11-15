@@ -455,5 +455,38 @@ final class StoreAndBudgetTests: XCTestCase {
         XCTAssertFalse(store.tags.contains("新标签"))
         XCTAssertTrue(store.transactions.first?.tags.isEmpty ?? false)
     }
+
+    func testCategoryBillsScopedTransactionsFiltering() {
+        let store = MimiStore(inMemory: true)
+        store.resetToCleanEmpty()
+
+        let cal = MimiCalendar.gregorian
+        let d1 = cal.date(from: DateComponents(year: 2026, month: 1, day: 15))!
+        let d2 = cal.date(from: DateComponents(year: 2026, month: 6, day: 20))!
+        let d3 = cal.date(from: DateComponents(year: 2026, month: 11, day: 10))!
+
+        let tx1 = TransactionItem(type: .expense, categoryPath: "餐饮-早餐", amount: 15.0, date: d1)
+        let tx2 = TransactionItem(type: .expense, categoryPath: "餐饮-晚餐", amount: 45.0, date: d2)
+        let tx3 = TransactionItem(type: .expense, categoryPath: "交通-打车", amount: 30.0, date: d3)
+
+        store.addTransaction(tx1)
+        store.addTransaction(tx2)
+        store.addTransaction(tx3)
+
+        // All 2026 expenses
+        let yearlyExpenses = store.transactions.filter {
+            cal.component(.year, from: $0.date) == 2026 && $0.type == .expense
+        }
+        XCTAssertEqual(yearlyExpenses.count, 3)
+
+        // Filter for "餐饮" category
+        let foodYearly = yearlyExpenses.filter {
+            let primary = $0.categoryPath.components(separatedBy: "-").first ?? $0.categoryPath
+            return primary == "餐饮"
+        }
+        XCTAssertEqual(foodYearly.count, 2)
+        let foodSum = foodYearly.reduce(0.0) { $0 + $1.amount }
+        XCTAssertEqual(foodSum, 60.0, accuracy: 0.001)
+    }
 }
 

@@ -39,7 +39,7 @@ public struct MimiStatsView: View {
     }
 
     private var periodTransactions: [TransactionItem] {
-        let cal = Calendar(identifier: .gregorian)
+        let cal = MimiCalendar.gregorian
         let targetLedgerId = selectedLedgerFilterId ?? store.currentLedgerId
 
         return store.transactions.filter { tx in
@@ -56,14 +56,20 @@ public struct MimiStatsView: View {
                 let now = Date()
                 guard let baseDate = cal.date(byAdding: .day, value: statsWeekOffset * 7, to: now) else { return true }
                 guard let weekStart = cal.date(byAdding: .day, value: -6, to: baseDate) else { return true }
-                return tx.date >= weekStart && tx.date <= baseDate
+                let startOfDay = cal.startOfDay(for: weekStart)
+                let endOfDay = cal.date(bySettingHour: 23, minute: 59, second: 59, of: baseDate) ?? baseDate
+                return tx.date >= startOfDay && tx.date <= endOfDay
             case "月":
                 return statsBillingPeriod.contains(tx.date)
             case "年":
                 let txYear = cal.component(.year, from: tx.date)
                 return txYear == statsYear
             case "自定义":
-                return tx.date >= customStartDate && tx.date <= customEndDate
+                let minDate = min(customStartDate, customEndDate)
+                let maxDate = max(customStartDate, customEndDate)
+                let startOfDay = cal.startOfDay(for: minDate)
+                let endOfDay = cal.date(bySettingHour: 23, minute: 59, second: 59, of: maxDate) ?? maxDate
+                return tx.date >= startOfDay && tx.date <= endOfDay
             default:
                 return true
             }
@@ -71,7 +77,7 @@ public struct MimiStatsView: View {
     }
 
     private var statsBillingPeriod: BillingPeriod {
-        let cal = Calendar(identifier: .gregorian)
+        let cal = MimiCalendar.gregorian
         let base = store.currentBillingPeriod()
         guard statsMonthOffset != 0,
               let shifted = cal.date(byAdding: .month, value: statsMonthOffset, to: base.start) else {
@@ -213,15 +219,22 @@ public struct MimiStatsView: View {
                 set: { if !$0 { drillCategoryName = nil } }
             )) {
                 if let name = drillCategoryName {
+                    let matchingBills = periodTransactions.filter { tx in
+                        guard tx.type == selectedChartType else { return false }
+                        let primary = tx.categoryPath.components(separatedBy: "-").first ?? tx.categoryPath
+                        return primary == name
+                    }
                     let periodStart = statsBillingPeriod.start
-                    let y = Calendar(identifier: .gregorian).component(.year, from: periodStart)
-                    let m = Calendar(identifier: .gregorian).component(.month, from: periodStart)
+                    let y = MimiCalendar.gregorian.component(.year, from: periodStart)
+                    let m = MimiCalendar.gregorian.component(.month, from: periodStart)
                     CategoryBillsListView(
                         store: store,
                         categoryName: name,
                         transactionType: selectedChartType,
                         year: y,
                         month: m,
+                        scopedTransactions: matchingBills,
+                        periodRangeLabel: periodLabelText,
                         onSelectTransaction: { tx in
                             billForDetail = tx
                         },

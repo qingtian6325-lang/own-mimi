@@ -142,6 +142,7 @@ public struct SettingsAndShortcutsGuideView: View {
                 Text("此操作会将账单、账户余额与审计日志全部重置为 RM0.00。", bundle: .mimiModule)
             }
         }
+        .mimiEdgeSwipeBack(onBack: onDismiss)
     }
 
     // MARK: - CSV Import & Export Card (极简两个按钮：导入 或 导出)

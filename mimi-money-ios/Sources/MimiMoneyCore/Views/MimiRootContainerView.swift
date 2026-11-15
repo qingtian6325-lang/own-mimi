@@ -264,9 +264,6 @@ public struct MimiRootContainerView: View {
                         }
                     }
                 )
-                .mimiEdgeSwipeBack {
-                    pushClose { showStatsView = false }
-                }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(40)
             }
@@ -303,9 +300,6 @@ public struct MimiRootContainerView: View {
                         }
                     }
                 )
-                .mimiEdgeSwipeBack {
-                    pushClose { showAllRecordsCalendar = false }
-                }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(41)
             }
@@ -316,9 +310,6 @@ public struct MimiRootContainerView: View {
                     aiEngine: aiEngine,
                     onDismiss: { pushClose { showAssetsManager = false } }
                 )
-                .mimiEdgeSwipeBack {
-                    pushClose { showAssetsManager = false }
-                }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(42)
             }
@@ -328,9 +319,6 @@ public struct MimiRootContainerView: View {
                     store: store,
                     onDismiss: { pushClose { showBudgetManager = false } }
                 )
-                .mimiEdgeSwipeBack {
-                    pushClose { showBudgetManager = false }
-                }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(43)
             }
@@ -340,9 +328,6 @@ public struct MimiRootContainerView: View {
                     store: store,
                     onDismiss: { pushClose { showCategoryManager = false } }
                 )
-                .mimiEdgeSwipeBack {
-                    pushClose { showCategoryManager = false }
-                }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(44)
             }
@@ -357,9 +342,6 @@ public struct MimiRootContainerView: View {
                         activeBillForEdit = tx
                     }
                 )
-                .mimiEdgeSwipeBack {
-                    pushClose { activeSettingsTitle = nil }
-                }
                 .transition(MimiMotion.pageTransition(reduceMotion: reduceMotion))
                 .zIndex(45)
             }

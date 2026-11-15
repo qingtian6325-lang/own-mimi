@@ -728,6 +728,9 @@ public struct AssetsAndAccountDetailView: View {
         #endif
         .navigationBarBackButtonHidden(true)
         .mimiInteractivePopGestureEnabled()
+        .mimiEdgeSwipeBack {
+            dispatch(.back)
+        }
         .toolbar {
             // Same leading placement as assets root, but action goes through nav.back
             // so left→right→left only pops detail — never the 资产 overlay.
