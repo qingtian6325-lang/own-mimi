@@ -28,6 +28,15 @@
       },
       "versions": [
         {
+          "version": "1.3.22",
+          "date": "2026-11-15T17:09:32Z",
+          "localizedDescription": "全局 Calendar 单例复用 (`MimiCalendar`)：新增全局单例公用公历对象，消除界面每次重绘与组件中散落的 40+ 处临时高开销 Calendar 内存分配。; GPU 离屏渲染与阴影分组优化 (`compositingGroup`)：对首页预算卡、资产卡、账单卡片与贴纸图标应用离屏合成组，避免长列表滚动时 GPU 重复离屏渲染走道。; 全屏覆盖页打开时挂起底层首页：当统计、日历、资产等全屏子页面打开时，挂起底层首页的点击与无障碍树，降低双层重绘开销。; 发版：`VERSION` / Intent 默认版本升至 1.3.22。",
+          "downloadURL": "https://github.com/qingtian6325-lang/own-mimi/releases/download/v1.3.22/MimiMoney-iOS-v1.3.22.ipa",
+          "size": 4432888,
+          "minOSVersion": "17.0",
+          "buildVersion": "139"
+        },
+        {
           "version": "1.3.21",
           "date": "2026-11-15T16:58:00Z",
           "localizedDescription": "修复账单详情关闭过渡（向下滑出）：将「账单详情」恢复为标准原生 Sheet 模式，点击左上角 `chevron.down` 向下箭头或直接向下滑动均顺畅向下滑出退出，消除原先向右飞走的违和感。; 全二级页面边缘侧滑返回（Edge Swipe Back）：统计图表、全部记录日历、资产管理、预算管理、分类管理全部统一补齐从左边缘向右侧滑返回手势。; 首页流水 `LazyVStack` 惰性加载：账单流水卡片改为惰性加载，大幅削减首屏视图实例化开销，长列表滑动达到 120Hz 满帧顺滑。; 账单按天聚合 O(1) 内存缓存：在 `MimiStore` 建立每日聚合账单缓存，仅在数据变动时重算，避免每次界面重绘在主线程消耗 CPU。",
