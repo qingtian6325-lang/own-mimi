@@ -1077,6 +1077,7 @@ public struct BudgetManagementView: View {
         let normalFill = MimiTheme.fillSubtle
 
         return Button {
+            MimiHaptics.selection()
             selectedDynamicDay = cell.day
             if opensFullSheetOnTap {
                 showDynamicDailySheet = true
@@ -1126,6 +1127,7 @@ public struct BudgetManagementView: View {
         .mimiPressable()
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                MimiHaptics.medium()
                 selectedDayKeyForCustomBudget = cell.id
                 customDayBudgetInput = String(format: "%.2f", cell.dynamicAvailableBudget)
             }

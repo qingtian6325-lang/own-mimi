@@ -692,6 +692,7 @@ public struct RecordAndAISheetView: View {
                     ForEach(Array(categories.enumerated()), id: \.element.id) { idx, group in
                         let isSelected = selectedTab == tab && idx == selectedGroupIndex
                         Button {
+                            MimiHaptics.selection()
                             selectedTab = tab
                             selectedGroupIndex = idx
                             selectedSubIndex = group.subcategories.isEmpty ? nil : 0
@@ -711,6 +712,8 @@ public struct RecordAndAISheetView: View {
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.85)
                             }
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
                         }
                         .mimiPressable()
                     }
@@ -729,6 +732,7 @@ public struct RecordAndAISheetView: View {
                             ForEach(Array(group.subcategories.enumerated()), id: \.element.id) { sIdx, sub in
                                 let isSubSelected = selectedSubIndex == sIdx
                                 Button {
+                                    MimiHaptics.selection()
                                     selectedSubIndex = sIdx
                                 } label: {
                                     VStack(spacing: 5) {
@@ -746,6 +750,8 @@ public struct RecordAndAISheetView: View {
                                             .lineLimit(1)
                                             .minimumScaleFactor(0.85)
                                     }
+                                    .frame(maxWidth: .infinity)
+                                    .contentShape(Rectangle())
                                 }
                                 .mimiPressable()
                             }
@@ -835,6 +841,7 @@ public struct RecordAndAISheetView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 22)
         .background(RoundedRectangle(cornerRadius: 16).fill(MimiTheme.background))
+        .contentShape(Rectangle())
     }
 
     private func pillLabel(icon: String, text: String) -> some View {
@@ -878,6 +885,7 @@ public struct RecordAndAISheetView: View {
                                                 : Color.white
                                         )
                                 )
+                                .contentShape(Rectangle())
                         }
                         .mimiPressable()
                     }
@@ -889,14 +897,17 @@ public struct RecordAndAISheetView: View {
     }
 
     private func handleKeyTap(_ key: String) {
+        MimiHaptics.light()
         switch key {
         case "⌫":
             if !expression.isEmpty {
                 expression.removeLast()
             }
         case "再记":
+            MimiHaptics.medium()
             saveManualTransaction(dismissAfter: false)
         case "完成":
+            MimiHaptics.medium()
             saveManualTransaction(dismissAfter: true)
         default:
             expression.append(key)

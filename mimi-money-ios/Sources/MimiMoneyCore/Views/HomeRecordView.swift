@@ -23,7 +23,7 @@ public struct HomeRecordView: View {
     @State private var pendingDeleteID: UUID? = nil
     @State private var showDeleteConfirm: Bool = false
     @State private var deleteToastToken: UUID = UUID()
-    @State private var rowSwipeConsumedTap: Bool = false
+    @State private var lastSwipeEndedTime: Date = .distantPast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(
@@ -698,14 +698,14 @@ public struct HomeRecordView: View {
     private func feedRowButton(_ item: TransactionItem, showsDivider: Bool) -> some View {
         let revealed = revealedDeleteID == item.id
         return Button {
-            if rowSwipeConsumedTap {
-                rowSwipeConsumedTap = false
+            if Date().timeIntervalSince(lastSwipeEndedTime) < 0.20 {
                 return
             }
             if revealedDeleteID != nil {
                 dismissRevealedDelete()
                 return
             }
+            MimiHaptics.light()
             onSelectTransaction(item)
         } label: {
             HStack(alignment: .center, spacing: 12) {
@@ -793,27 +793,18 @@ public struct HomeRecordView: View {
     }
 
     private func rowSwipeGesture(for id: UUID) -> some Gesture {
-        DragGesture(minimumDistance: 22, coordinateSpace: .local)
-            .onChanged { value in
-                let dx = value.translation.width
-                let dy = value.translation.height
-                if (dx * dx + dy * dy) > 324 {
-                    rowSwipeConsumedTap = true
-                }
-            }
+        DragGesture(minimumDistance: 24, coordinateSpace: .local)
             .onEnded { value in
                 let dx = value.translation.width
                 let dy = value.translation.height
-                if (dx * dx + dy * dy) > 324 {
-                    rowSwipeConsumedTap = true
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 40_000_000)
-                        rowSwipeConsumedTap = false
-                    }
+                if abs(dx) > abs(dy) * 1.5 && (dx < -26 || dx > 26) {
+                    lastSwipeEndedTime = Date()
                 }
                 guard abs(dx) > abs(dy) else { return }
                 // 往左滑 → 露出右侧删除图标；往右滑 / 轻滑回去 → 收起。不直接删除。
                 if dx <= -48 {
+                    MimiHaptics.light()
+                    lastSwipeEndedTime = Date()
                     animateFeedChange { revealedDeleteID = id }
                 } else if dx >= 36 {
                     dismissRevealedDelete()

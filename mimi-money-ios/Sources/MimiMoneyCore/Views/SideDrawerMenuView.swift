@@ -383,6 +383,8 @@ public struct SideDrawerMenuView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
         }
         .mimiPressable()
         .accessibilityLabel(MimiL10n.string(title))

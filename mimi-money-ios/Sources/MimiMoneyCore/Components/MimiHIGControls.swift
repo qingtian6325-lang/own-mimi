@@ -5,25 +5,33 @@ public enum MimiHIG {
     public static let minTouch: CGFloat = 44
 }
 
-/// Native-feeling press: opacity + slight scale with immediate spring (HIG feedback).
+/// Native-feeling press: instant opacity + slight scale with immediate recovery and haptic feedback.
 public struct MimiPressableButtonStyle: ButtonStyle {
     public var pressedOpacity: Double
     public var pressedScale: CGFloat
+    public var enableHaptic: Bool
 
-    public init(pressedOpacity: Double = 0.55, pressedScale: CGFloat = 0.97) {
+    public init(pressedOpacity: Double = 0.65, pressedScale: CGFloat = 0.98, enableHaptic: Bool = true) {
         self.pressedOpacity = pressedOpacity
         self.pressedScale = pressedScale
+        self.enableHaptic = enableHaptic
     }
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .opacity(configuration.isPressed ? pressedOpacity : 1)
-            .scaleEffect(configuration.isPressed ? pressedScale : 1)
-            // Spring responds on the press frame — avoid delayed easeOut that feels half-beat late.
+            .opacity(configuration.isPressed ? pressedOpacity : 1.0)
+            .scaleEffect(configuration.isPressed ? pressedScale : 1.0)
             .animation(
-                .spring(response: 0.14, dampingFraction: 0.78, blendDuration: 0),
+                configuration.isPressed
+                    ? .linear(duration: 0.04)
+                    : .easeOut(duration: 0.10),
                 value: configuration.isPressed
             )
+            .onChange(of: configuration.isPressed) { _, isPressed in
+                if isPressed && enableHaptic {
+                    MimiHaptics.light()
+                }
+            }
     }
 }
 
