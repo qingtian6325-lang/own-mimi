@@ -245,6 +245,8 @@ public struct MimiRootContainerView: View {
             }
 
             // 功能页：打开从右往左推进，返回从左往右退出
+            // Note: mimiEdgeSwipeBack is handled directly within each feature page and subpage,
+            // ensuring secondary drill-downs pop back to their parent views rather than dismissing to Home.
             if showStatsView {
                 MimiStatsView(
                     store: store,
