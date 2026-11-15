@@ -387,4 +387,71 @@ final class StoreAndBudgetTests: XCTestCase {
         let loadedBare = store.loadReceiptImageData(filename: bare)
         XCTAssertEqual(loadedBare, rawData)
     }
+
+    func testCategoryBudgetsSortedDescendingByUsageRatio() {
+        // User scenario:
+        // - Category A: budget 100, spent 80 -> 80%
+        // - Category B: budget 200, spent 190 -> 95%
+        // - Category C: budget 100, spent 20 -> 20%
+        // Expected order: Category B (95%), Category A (80%), Category C (20%)
+        let budgets = [
+            CategoryBudgetItem(id: "cat_a", categoryName: "餐饮", iconName: "food", monthlyLimit: 100),
+            CategoryBudgetItem(id: "cat_b", categoryName: "购物", iconName: "bag", monthlyLimit: 200),
+            CategoryBudgetItem(id: "cat_c", categoryName: "交通", iconName: "car", monthlyLimit: 100)
+        ]
+        let spentMap: [String: Double] = [
+            "餐饮": 80,
+            "购物": 190,
+            "交通": 20
+        ]
+        let sorted = MimiStore.sortCategoryBudgetsByUsageRatio(budgets) { category in
+            spentMap[category] ?? 0
+        }
+        XCTAssertEqual(sorted.map(\.categoryName), ["购物", "餐饮", "交通"])
+
+        // Also verify via store.sortedCategoryBudgets(in:)
+        let store = MimiStore(inMemory: true)
+        store.resetToCleanEmpty()
+        store.categoryBudgets = budgets
+        let now = Date()
+        store.addTransaction(TransactionItem(type: .expense, categoryPath: "餐饮-午餐", amount: 80, accountName: "TNGewallet", date: now))
+        store.addTransaction(TransactionItem(type: .expense, categoryPath: "购物-日用", amount: 190, accountName: "TNGewallet", date: now))
+        store.addTransaction(TransactionItem(type: .expense, categoryPath: "交通-打车", amount: 20, accountName: "TNGewallet", date: now))
+
+        let period = store.currentBillingPeriod(for: now)
+        let storeSorted = store.sortedCategoryBudgets(in: period)
+        XCTAssertEqual(storeSorted.map(\.categoryName), ["购物", "餐饮", "交通"])
+    }
+
+    func testTagRenameDeleteAndSharedString18ArtifactSanitization() {
+        let store = MimiStore(inMemory: true)
+        store.resetToCleanEmpty()
+
+        let tx = TransactionItem(
+            ledgerId: store.currentLedgerId,
+            type: .expense,
+            amount: 35.0,
+            primaryCategoryId: "餐饮",
+            note: "18",
+            tags: ["18", "旧标签"]
+        )
+        store.addTransaction(tx)
+        store.tags.append("18")
+        store.tags.append("旧标签")
+
+        store.sanitizeImportedSharedStringArtifacts()
+        XCTAssertFalse(store.tags.contains("18"))
+        XCTAssertEqual(store.transactions.first?.tags, ["旧标签"])
+        XCTAssertEqual(store.transactions.first?.note, "")
+
+        store.renameTag(oldName: "旧标签", newName: "新标签")
+        XCTAssertFalse(store.tags.contains("旧标签"))
+        XCTAssertTrue(store.tags.contains("新标签"))
+        XCTAssertEqual(store.transactions.first?.tags, ["新标签"])
+
+        store.deleteTag("新标签")
+        XCTAssertFalse(store.tags.contains("新标签"))
+        XCTAssertTrue(store.transactions.first?.tags.isEmpty ?? false)
+    }
 }
+

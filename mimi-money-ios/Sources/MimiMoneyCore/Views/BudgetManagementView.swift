@@ -33,6 +33,7 @@ public struct BudgetManagementView: View {
     @State private var historyBillForDetail: TransactionItem? = nil
     @State private var selectedDynamicDay: Int? = nil
     @State private var dynamicDayBillForDetail: TransactionItem? = nil
+    @State private var isAmountsHidden: Bool = false
 
     private struct CategoryMonthDrill: Identifiable, Hashable {
         let categoryName: String
@@ -88,6 +89,19 @@ public struct BudgetManagementView: View {
         store.categoryBudgets.reduce(0.0) { $0 + $1.monthlyLimit }
     }
 
+    /// Categories sorted descending by usage percentage (`spent / monthlyLimit`).
+    private var sortedCategoryBudgets: [CategoryBudgetItem] {
+        store.sortedCategoryBudgets(in: currentPeriod)
+    }
+
+    private var uncategorizedBudgetLimit: Double {
+        max(0.0, store.monthlyBudgetTotal - categorizedBudgetTotal)
+    }
+
+    private var uncategorizedBudgetSpent: Double {
+        store.uncategorizedBudgetSpent(in: currentPeriod)
+    }
+
     private var unbudgetedCategories: [CategoryGroup] {
         let budgetedNames = Set(store.categoryBudgets.map(\.categoryName))
         return store.expenseCategories.filter { !budgetedNames.contains($0.name) }
@@ -97,8 +111,25 @@ public struct BudgetManagementView: View {
         NavigationStack {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 14) {
-                    monthlySummaryTopCard
-                    categorizedBudgetListCard
+                    VStack(spacing: 14) {
+                        monthlySummaryTopCard
+                        categorizedBudgetListCard
+                    }
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color(lightHex: 0xEAF1FF, darkHex: 0x1A2438),
+                                        Color(lightHex: 0xF5F8FF, darkHex: 0x151A26)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    )
+
                     dynamicDailyInlineCard
                 }
                 .padding(16)
@@ -341,165 +372,207 @@ public struct BudgetManagementView: View {
         }
     }
 
-    // MARK: - Top Monthly Overview +Ring Chart (IMG_2263)
+    // MARK: - Top Monthly Overview + Categorized Budget List (IMG_2446)
 
     private var budgetUsedRatio: Double {
         let total = max(store.monthlyBudgetTotal, 0.0001)
         return min(1.0, max(0.0, monthlySpent / total))
     }
 
-    private var monthlySummaryTopCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(currentPeriod.displayRangeLabel)
-                        .mimiFont(12, weight: .medium)
-                        .foregroundColor(MimiTheme.textSecondary)
-
-                    Text("月预算剩余", bundle: .mimiModule)
-                        .mimiFont(13, weight: .medium)
-                        .foregroundColor(MimiTheme.textSecondary)
-
-                    Text(MimiTheme.formatRM(monthlyRemaining))
-                        .mimiFont(26, weight: .bold, design: .rounded)
-                        .foregroundColor(MimiTheme.textPrimary)
-
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(MimiTheme.fillSubtle).frame(height: MimiTheme.progressBarHeight)
-                            Capsule()
-                                .fill(MimiTheme.expenseBlue)
-                                .frame(width: max(8, geo.size.width * CGFloat(budgetUsedRatio)), height: MimiTheme.progressBarHeight)
-                            Text("\(Int((budgetUsedRatio * 100).rounded()))%")
-                                .mimiFont(10, weight: .bold)
-                                .foregroundColor(.white)
-                                .padding(.leading, 8)
-                        }
-                    }
-                    .frame(height: MimiTheme.progressBarHeight)
-
-                    HStack {
-                        Text("已用 \(MimiTheme.formatRM(monthlySpent))")
-                            .mimiFont(12)
-                            .foregroundColor(MimiTheme.textSecondary)
-                        Spacer()
-                        Button {
-                            totalBudgetInput = String(format: "%.2f", store.monthlyBudgetTotal)
-                            activeSheetType = .editTotal
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(MimiTheme.formatRM(store.monthlyBudgetTotal))
-                                    .mimiFont(13, weight: .semibold, design: .rounded)
-                                    .foregroundColor(MimiTheme.textPrimary)
-                                Image(systemName: "pencil")
-                                    .mimiFont(12, weight: .semibold)
-                                    .foregroundColor(MimiTheme.expenseBlue)
-                            }
-                        }
-                        .mimiPressable()
-                        .accessibilityLabel(MimiL10n.string("修改月预算"))
-                    }
-                }
-
-                Spacer(minLength: 12)
-
-                ZStack {
-                    Circle()
-                        .stroke(MimiTheme.fillSubtle, lineWidth: 9)
-                        .frame(width: 86, height: 86)
-                    Circle()
-                        .trim(from: 0, to: CGFloat(min(1, todayRemainingAvailable / max(dailyAvailable, 0.0001))))
-                        .stroke(MimiTheme.expenseBlue, style: StrokeStyle(lineWidth: 9, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .frame(width: 86, height: 86)
-                    VStack(spacing: 2) {
-                        Text("今日可用", bundle: .mimiModule)
-                            .mimiFont(9, weight: .semibold)
-                            .foregroundColor(MimiTheme.expenseBlue)
-                        Text(String(format: "%.2f", todayRemainingAvailable))
-                            .mimiFont(14, weight: .bold, design: .rounded)
-                            .foregroundColor(MimiTheme.textPrimary)
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 20).fill(MimiTheme.cardBackground))
+    private func maskedRM(_ value: Double) -> String {
+        isAmountsHidden ? "RM****" : MimiTheme.formatRM(value)
     }
 
-    // MARK: - 已分类预算 (IMG_2263: 6 configured categories)
+    private var monthlySummaryTopCard: some View {
+        let percentInt = Int((budgetUsedRatio * 100).rounded())
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 4) {
+                Text("\(currentYear)年\(currentMonth)月")
+                    .mimiFont(13, weight: .semibold)
+                    .foregroundColor(MimiTheme.textSecondary)
+                Image(systemName: "chevron.right")
+                    .mimiFont(10, weight: .semibold)
+                    .foregroundColor(MimiTheme.textSecondary)
+                Spacer()
+            }
+
+            HStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(MimiTheme.expenseBlue)
+                    .frame(width: 4, height: 14)
+                Text("月预算剩余", bundle: .mimiModule)
+                    .mimiFont(13, weight: .semibold)
+                    .foregroundColor(MimiTheme.textSecondary)
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(maskedRM(monthlyRemaining))
+                    .mimiFont(28, weight: .bold, design: .rounded)
+                    .foregroundColor(monthlyRemaining >= 0 ? MimiTheme.textPrimary : MimiTheme.dangerRed)
+
+                Button {
+                    isAmountsHidden.toggle()
+                } label: {
+                    Image(systemName: isAmountsHidden ? "eye.slash" : "eye")
+                        .mimiFont(13, weight: .medium)
+                        .foregroundColor(MimiTheme.textSecondary)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+
+            GeometryReader { geo in
+                let totalW = max(1, geo.size.width)
+                let usedW = max(0, min(totalW, totalW * CGFloat(budgetUsedRatio)))
+                let badgeX = min(max(24, usedW), totalW - 24)
+
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.white.opacity(0.85))
+                        .frame(height: 12)
+                        .offset(y: 12)
+
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    MimiTheme.expenseBlue,
+                                    Color(red: 0.42, green: 0.67, blue: 0.99),
+                                    Color(red: 0.96, green: 0.56, blue: 0.45),
+                                    Color(red: 0.96, green: 0.78, blue: 0.36)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: max(8, usedW), height: 12)
+                        .offset(y: 12)
+
+                    Text("\(percentInt)%")
+                        .mimiFont(10, weight: .bold, design: .rounded)
+                        .foregroundColor(MimiTheme.expenseBlue)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(MimiTheme.cardBackground)
+                                .shadow(color: Color.black.opacity(0.08), radius: 2, x: 0, y: 1)
+                        )
+                        .position(x: badgeX, y: 7)
+                }
+            }
+            .frame(height: 26)
+
+            HStack {
+                Text("已用\(maskedRM(monthlySpent))")
+                    .mimiFont(12, weight: .medium, design: .rounded)
+                    .foregroundColor(MimiTheme.textSecondary)
+                Spacer()
+                Button {
+                    totalBudgetInput = String(format: "%.2f", store.monthlyBudgetTotal)
+                    activeSheetType = .editTotal
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(maskedRM(store.monthlyBudgetTotal))
+                            .mimiFont(12, weight: .semibold, design: .rounded)
+                            .foregroundColor(MimiTheme.textSecondary)
+                        Image(systemName: "square.and.pencil")
+                            .mimiFont(12, weight: .semibold)
+                            .foregroundColor(MimiTheme.expenseBlue)
+                    }
+                }
+                .mimiPressable()
+                .accessibilityLabel(MimiL10n.string("修改月预算"))
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 2)
+    }
+
+    // MARK: - 已分类预算 (IMG_2446: sorted descending by usage percentage)
 
     private var categorizedBudgetListCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 6) {
                 Text("已分类预算", bundle: .mimiModule)
                     .mimiFont(15, weight: .bold)
                     .foregroundColor(MimiTheme.textPrimary)
-                Spacer()
-                Text(MimiTheme.formatRM(categorizedBudgetTotal))
+                Text(maskedRM(categorizedBudgetTotal))
                     .mimiFont(14, weight: .bold, design: .rounded)
                     .foregroundColor(MimiTheme.textPrimary)
+                Spacer()
                 Button {
                     activeSheetType = .selectNewCategory
                 } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .mimiFont(18)
-                        .foregroundColor(MimiTheme.expenseBlue)
+                    HStack(spacing: 3) {
+                        Image(systemName: "plus")
+                            .mimiFont(11, weight: .bold)
+                        Text("分类预算", bundle: .mimiModule)
+                            .mimiFont(12, weight: .semibold)
+                    }
+                    .foregroundColor(MimiTheme.expenseBlue)
                 }
                 .mimiPressable()
             }
+            .padding(.bottom, 2)
 
             if categoryBudgetsExpanded {
-                ForEach(store.categoryBudgets) { item in
-                    let spent = store.categorySpent(for: item.categoryName, in: currentPeriod)
-                    let rem = item.monthlyLimit - spent
-                    let ratio = item.monthlyLimit > 0 ? min(1.0, spent / item.monthlyLimit) : 0
-
-                    Button {
-                        historyCategory = item
-                    } label: {
-                        VStack(spacing: 8) {
-                            HStack(spacing: 10) {
-                                MimiStickerIconView(
-                                    iconName: item.iconName,
-                                    categoryName: item.categoryName,
-                                    transactionType: .expense,
-                                    useFirstCharIcon: item.useFirstCharIcon,
-                                    size: 34
-                                )
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.categoryName)
-                                        .mimiFont(14, weight: .semibold)
-                                        .foregroundColor(MimiTheme.textPrimary)
-                                    Text("已用\(MimiTheme.formatRM(spent)) | \(MimiTheme.formatRM(item.monthlyLimit))")
-                                        .mimiFont(12, design: .rounded)
-                                        .foregroundColor(MimiTheme.textSecondary)
-                                }
-
-                                Spacer()
-
-                                Image(systemName: "chevron.right")
-                                    .mimiFont(11, weight: .semibold)
-                                    .foregroundColor(MimiTheme.textMuted)
+                VStack(spacing: 8) {
+                    ForEach(sortedCategoryBudgets) { item in
+                        let spent = store.categorySpent(for: item.categoryName, in: currentPeriod)
+                        let isOverBudget = item.monthlyLimit > 0 ? (spent > item.monthlyLimit) : (spent > 0)
+                        let ratio: Double = {
+                            if item.monthlyLimit > 0 {
+                                return min(1.0, max(0.0, spent / item.monthlyLimit))
                             }
+                            return spent > 0 ? 1.0 : 0.0
+                        }()
 
-                            GeometryReader { geo in
-                                ZStack(alignment: .leading) {
-                                    Capsule()
-                                        .fill(MimiTheme.fillSubtle)
-                                        .frame(height: 8)
-                                    Capsule()
-                                        .fill(rem >= 0 ? MimiTheme.expenseBlue : MimiTheme.dangerRed)
-                                        .frame(width: geo.size.width * CGFloat(ratio), height: 8)
-                                }
-                            }
-                            .frame(height: 8)
+                        Button {
+                            historyCategory = item
+                        } label: {
+                            categoryBudgetProgressRow(
+                                iconName: item.iconName,
+                                categoryName: item.categoryName,
+                                useFirstCharIcon: item.useFirstCharIcon,
+                                spent: spent,
+                                limit: item.monthlyLimit,
+                                ratio: ratio,
+                                isOverBudget: isOverBudget,
+                                showLeadingHandle: true,
+                                showChevron: true
+                            )
                         }
-                        .padding(.vertical, 4)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .mimiPressable()
                     }
-                    .mimiPressable()
+
+                    Divider()
+                        .padding(.vertical, 2)
+
+                    let uncatRatio: Double = {
+                        if uncategorizedBudgetLimit > 0 {
+                            return min(1.0, max(0.0, uncategorizedBudgetSpent / uncategorizedBudgetLimit))
+                        }
+                        return uncategorizedBudgetSpent > 0 ? 1.0 : 0.0
+                    }()
+                    let uncatOver = uncategorizedBudgetLimit > 0
+                        ? (uncategorizedBudgetSpent > uncategorizedBudgetLimit)
+                        : (uncategorizedBudgetSpent > 0)
+
+                    categoryBudgetProgressRow(
+                        iconName: "square.grid.2x2.fill",
+                        categoryName: MimiL10n.string("未分类预算"),
+                        useFirstCharIcon: false,
+                        spent: uncategorizedBudgetSpent,
+                        limit: uncategorizedBudgetLimit,
+                        ratio: uncatRatio,
+                        isOverBudget: uncatOver,
+                        showLeadingHandle: false,
+                        showChevron: false,
+                        isUncategorizedRow: true
+                    )
                 }
             }
 
@@ -510,19 +583,109 @@ public struct BudgetManagementView: View {
             } label: {
                 HStack(spacing: 4) {
                     Spacer()
-                    Text(categoryBudgetsExpanded ? "收起" : "展开")
-                        .mimiFont(12, weight: .semibold)
                     Image(systemName: categoryBudgetsExpanded ? "chevron.up" : "chevron.down")
-                        .mimiFont(11, weight: .bold)
+                        .mimiFont(10, weight: .bold)
+                    Text(categoryBudgetsExpanded ? "收起" : "展开")
+                        .mimiFont(12, weight: .medium)
                     Spacer()
                 }
-                .foregroundColor(MimiTheme.textSecondary)
-                .padding(.top, 2)
+                .foregroundColor(MimiTheme.textMuted)
+                .padding(.top, 4)
             }
             .mimiPressable()
         }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 20).fill(MimiTheme.cardBackground))
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(MimiTheme.cardBackground)
+        )
+    }
+
+    @ViewBuilder
+    private func categoryBudgetProgressRow(
+        iconName: String,
+        categoryName: String,
+        useFirstCharIcon: Bool,
+        spent: Double,
+        limit: Double,
+        ratio: Double,
+        isOverBudget: Bool,
+        showLeadingHandle: Bool,
+        showChevron: Bool,
+        isUncategorizedRow: Bool = false
+    ) -> some View {
+        let fillColor = isOverBudget
+            ? Color(lightHex: 0xFFE5E5, darkHex: 0x3D1F24)
+            : Color(lightHex: 0xE6EEFF, darkHex: 0x1F2D4A)
+
+        HStack(spacing: 8) {
+            if showLeadingHandle {
+                Image(systemName: "line.3.horizontal")
+                    .mimiFont(11, weight: .semibold)
+                    .foregroundColor(MimiTheme.textMuted.opacity(0.65))
+            }
+
+            if isUncategorizedRow {
+                ZStack {
+                    Circle()
+                        .fill(Color(lightHex: 0xDCE7FF, darkHex: 0x263554))
+                        .frame(width: 28, height: 28)
+                    Image(systemName: " doc.text.magnifyingglass".trimmingCharacters(in: .whitespaces))
+                        .mimiFont(12, weight: .semibold)
+                        .foregroundColor(MimiTheme.expenseBlue)
+                }
+            } else {
+                MimiStickerIconView(
+                    iconName: iconName,
+                    categoryName: categoryName,
+                    transactionType: .expense,
+                    useFirstCharIcon: useFirstCharIcon,
+                    size: 28
+                )
+            }
+
+            Text(categoryName)
+                .mimiFont(13, weight: .semibold)
+                .foregroundColor(MimiTheme.textPrimary)
+                .lineLimit(1)
+
+            Spacer(minLength: 6)
+
+            HStack(spacing: 4) {
+                Text("已用\(maskedRM(spent))")
+                    .mimiFont(11, weight: .medium, design: .rounded)
+                    .foregroundColor(isOverBudget ? MimiTheme.dangerRed : MimiTheme.textSecondary)
+                Text("|")
+                    .mimiFont(10, weight: .regular)
+                    .foregroundColor(MimiTheme.textMuted)
+                Text(maskedRM(limit))
+                    .mimiFont(11, weight: .medium, design: .rounded)
+                    .foregroundColor(MimiTheme.textSecondary)
+                if showChevron {
+                    Image(systemName: "chevron.right")
+                        .mimiFont(10, weight: .semibold)
+                        .foregroundColor(MimiTheme.textMuted)
+                }
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(Color(lightHex: 0xF7F8FA, darkHex: 0x1A1D24))
+                    if ratio > 0 {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(fillColor)
+                            .frame(width: max(12, geo.size.width * CGFloat(min(1.0, max(0.0, ratio)))))
+                    }
+                }
+            }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
     }
 
     // MARK: - 动态日预算（主页下方）

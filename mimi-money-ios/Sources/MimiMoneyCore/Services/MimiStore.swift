@@ -284,6 +284,7 @@ public final class MimiStore: ObservableObject {
            let decoded = try? JSONDecoder().decode([TransactionItem].self, from: data) {
             self.pendingScanTransactions = decoded
         }
+        sanitizeImportedSharedStringArtifacts()
         DefaultCatalog.syncLiveAccounts(accounts)
         recalculateAllAccountBalances()
     }
@@ -737,8 +738,72 @@ public final class MimiStore: ObservableObject {
     }
 
     public func deleteTag(_ name: String) {
-        tags.removeAll(where: { $0 == name })
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        tags.removeAll(where: { $0 == name || $0 == trimmed })
+        for idx in transactions.indices {
+            transactions[idx].tags.removeAll(where: { $0 == name || $0 == trimmed })
+        }
         saveState()
+    }
+
+    public func renameTag(oldName: String, newName: String) {
+        let oldTrimmed = oldName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newTrimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !oldTrimmed.isEmpty, !newTrimmed.isEmpty, oldTrimmed != newTrimmed else { return }
+        if let idx = tags.firstIndex(where: { $0 == oldName || $0 == oldTrimmed }) {
+            if tags.contains(newTrimmed) {
+                tags.remove(at: idx)
+            } else {
+                tags[idx] = newTrimmed
+            }
+        } else if !tags.contains(newTrimmed) {
+            tags.append(newTrimmed)
+        }
+        for idx in transactions.indices {
+            guard transactions[idx].tags.contains(where: { $0 == oldName || $0 == oldTrimmed }) else { continue }
+            var updated: [String] = []
+            for t in transactions[idx].tags {
+                let candidate = (t == oldName || t == oldTrimmed) ? newTrimmed : t
+                if !updated.contains(candidate) {
+                    updated.append(candidate)
+                }
+            }
+            transactions[idx].tags = updated
+        }
+        saveState()
+    }
+
+    /// Cleans stray sharedStrings table index "18" injected by earlier XLSX imports on empty cells,
+    /// and ensures any custom non-internal tags on transactions are visible in `tags`.
+    public func sanitizeImportedSharedStringArtifacts() {
+        var didMutate = false
+        if tags.contains("18") {
+            tags.removeAll(where: { $0 == "18" })
+            didMutate = true
+        }
+        for idx in transactions.indices {
+            let beforeCount = transactions[idx].tags.count
+            transactions[idx].tags.removeAll { tag in
+                let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed == "18"
+            }
+            if transactions[idx].tags.count != beforeCount {
+                didMutate = true
+            }
+            if transactions[idx].note.trimmingCharacters(in: .whitespacesAndNewlines) == "18" {
+                transactions[idx].note = ""
+                didMutate = true
+            }
+            for tag in transactions[idx].tags {
+                let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, trimmed != "待报销", !tags.contains(trimmed) else { continue }
+                tags.append(trimmed)
+                didMutate = true
+            }
+        }
+        if didMutate {
+            saveState()
+        }
     }
 
     public func transactions(forTag tag: String) -> [TransactionItem] {
@@ -915,6 +980,55 @@ public final class MimiStore: ObservableObject {
         currentLedger.categoryBudgets
     }
 
+    /// Sorts category budgets in descending order of usage ratio (`spent / monthlyLimit`),
+    /// so categories with higher percentage used always appear higher regardless of absolute RM amount.
+    public static func sortCategoryBudgetsByUsageRatio(
+        _ items: [CategoryBudgetItem],
+        spentForCategory: (String) -> Double
+    ) -> [CategoryBudgetItem] {
+        items.sorted { lhs, rhs in
+            let lhsSpent = max(0.0, spentForCategory(lhs.categoryName))
+            let rhsSpent = max(0.0, spentForCategory(rhs.categoryName))
+            let lhsRatio: Double = lhs.monthlyLimit > 0
+                ? (lhsSpent / lhs.monthlyLimit)
+                : (lhsSpent > 0 ? .infinity : 0.0)
+            let rhsRatio: Double = rhs.monthlyLimit > 0
+                ? (rhsSpent / rhs.monthlyLimit)
+                : (rhsSpent > 0 ? .infinity : 0.0)
+            if abs(lhsRatio - rhsRatio) > 1e-9 {
+                return lhsRatio > rhsRatio
+            }
+            if abs(lhsSpent - rhsSpent) > 1e-9 {
+                return lhsSpent > rhsSpent
+            }
+            return lhs.sortOrder < rhs.sortOrder
+        }
+    }
+
+    public func sortedCategoryBudgets(in period: BillingPeriod? = nil) -> [CategoryBudgetItem] {
+        let targetPeriod = period ?? currentBillingPeriod()
+        return Self.sortCategoryBudgetsByUsageRatio(categoryBudgets) { categoryName in
+            self.categorySpent(for: categoryName, in: targetPeriod)
+        }
+    }
+
+    public func uncategorizedBudgetSpent(in period: BillingPeriod? = nil) -> Double {
+        let targetPeriod = period ?? currentBillingPeriod()
+        let budgetedNames = Set(categoryBudgets.map(\.categoryName))
+        let budgetedIds = Set(categoryBudgets.map(\.categoryId))
+        return transactions.reduce(0.0) { acc, tx in
+            guard tx.ledgerId == currentLedgerId,
+                  tx.includeInStats,
+                  tx.type == .expense,
+                  targetPeriod.contains(tx.date) else { return acc }
+            let primaryName = tx.categoryPath.components(separatedBy: "-").first ?? tx.categoryPath
+            if budgetedNames.contains(primaryName) || budgetedIds.contains(tx.primaryCategoryId) {
+                return acc
+            }
+            return acc + max(0.0, tx.amount - tx.discountAmount - tx.refundAmount)
+        }
+    }
+
     public func categorySpent(for categoryName: String, year: Int, month: Int) -> Double {
         if monthStartDay != 1 {
             let cal = Calendar(identifier: .gregorian)
@@ -1059,6 +1173,7 @@ public final class MimiStore: ObservableObject {
         for item in parsed.sorted(by: { $0.date < $1.date }) {
             addTransaction(item, at: item.date)
         }
+        sanitizeImportedSharedStringArtifacts()
         saveState()
         return parsed.count
     }
@@ -1363,6 +1478,7 @@ public final class MimiStore: ObservableObject {
            let pendingDecoded = try? JSONDecoder().decode([TransactionItem].self, from: pendingData) {
             pendingScanTransactions = pendingDecoded
         }
+        sanitizeImportedSharedStringArtifacts()
         DefaultCatalog.syncLiveAccounts(accounts)
         recalculateAllAccountBalances()
     }

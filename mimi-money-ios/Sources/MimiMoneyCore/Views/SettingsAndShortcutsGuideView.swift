@@ -39,6 +39,8 @@ public struct SettingsAndShortcutsGuideView: View {
     // Tag management states
     @State private var newTagName: String = ""
     @State private var selectedFilterTag: String? = nil
+    @State private var renamingTag: String? = nil
+    @State private var renameTagInput: String = ""
 
     // Scheduled bookkeeping states
     @State private var showCreateScheduledSheet: Bool = false
@@ -1325,15 +1327,52 @@ public struct SettingsAndShortcutsGuideView: View {
 
             // Tag chips
             VStack(alignment: .leading, spacing: 10) {
-                Text("现有标签列表（点击标签可筛选关联账单）：", bundle: .mimiModule)
+                Text("现有标签列表（点击标签可筛选关联账单，点铅笔或长按可重命名）：", bundle: .mimiModule)
                     .mimiFont(12, weight: .medium)
                     .foregroundColor(MimiTheme.textSecondary)
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 95), spacing: 8)], spacing: 8) {
+                if let targetTag = renamingTag {
+                    HStack(spacing: 8) {
+                        Text("修改「#\(targetTag)」：")
+                            .mimiFont(12, weight: .semibold)
+                            .foregroundColor(MimiTheme.textSecondary)
+                        TextField("输入新标签名称", text: $renameTagInput)
+                            .mimiFont(13)
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(MimiTheme.cardBackground))
+                        Button(MimiL10n.string("保存")) {
+                            let trimmed = renameTagInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !trimmed.isEmpty else { return }
+                            store.renameTag(oldName: targetTag, newName: trimmed)
+                            if selectedFilterTag == targetTag {
+                                selectedFilterTag = trimmed
+                            }
+                            renamingTag = nil
+                            renameTagInput = ""
+                            statusBannerMessage = "已将标签 #\(targetTag) 更改为 #\(trimmed)"
+                        }
+                        .mimiFont(12, weight: .bold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(MimiTheme.expenseBlue))
+
+                        Button(MimiL10n.string("取消")) {
+                            renamingTag = nil
+                            renameTagInput = ""
+                        }
+                        .mimiFont(12)
+                        .foregroundColor(MimiTheme.textSecondary)
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(MimiTheme.tintBlueChip))
+                }
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 8)], spacing: 8) {
                     ForEach(store.tags, id: \.self) { tag in
                         let count = store.transactions(forTag: tag).count
                         let isSelected = selectedFilterTag == tag
-                        HStack(spacing: 4) {
+                        HStack(spacing: 5) {
                             Button {
                                 selectedFilterTag = (selectedFilterTag == tag) ? nil : tag
                             } label: {
@@ -1343,18 +1382,41 @@ public struct SettingsAndShortcutsGuideView: View {
                                     .lineLimit(1)
                             }
                             Button {
+                                renamingTag = tag
+                                renameTagInput = tag
+                            } label: {
+                                Image(systemName: "pencil")
+                                    .mimiFont(10, weight: .semibold)
+                                    .foregroundColor(isSelected ? .white.opacity(0.9) : MimiTheme.expenseBlue)
+                            }
+                            .accessibilityLabel("重命名标签 \(tag)")
+                            Button {
                                 store.deleteTag(tag)
                                 if selectedFilterTag == tag { selectedFilterTag = nil }
+                                if renamingTag == tag { renamingTag = nil }
                                 statusBannerMessage = "已删除标签: #\(tag)"
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .mimiFont(10)
                                     .foregroundColor(isSelected ? .white.opacity(0.8) : MimiTheme.textMuted)
                             }
+                            .accessibilityLabel("删除标签 \(tag)")
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
-                        .background(Capsule().fill(isSelected ? MimiTheme.expenseBlue : Color.white))
+                        .background(Capsule().fill(isSelected ? MimiTheme.expenseBlue : MimiTheme.cardBackground))
+                        .contextMenu {
+                            Button(MimiL10n.string("重命名")) {
+                                renamingTag = tag
+                                renameTagInput = tag
+                            }
+                            Button(MimiL10n.string("删除"), role: .destructive) {
+                                store.deleteTag(tag)
+                                if selectedFilterTag == tag { selectedFilterTag = nil }
+                                if renamingTag == tag { renamingTag = nil }
+                                statusBannerMessage = "已删除标签: #\(tag)"
+                            }
+                        }
                     }
                 }
             }

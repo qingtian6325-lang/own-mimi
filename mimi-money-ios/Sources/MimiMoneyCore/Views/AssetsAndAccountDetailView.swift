@@ -719,7 +719,7 @@ public struct AssetsAndAccountDetailView: View {
                     }
                 }
                 .padding(16)
-                .padding(.bottom, 72)
+                .padding(.bottom, 24)
             }
         .background(MimiTheme.background.ignoresSafeArea())
         .navigationTitle(MimiL10n.string("账户详情"))
@@ -747,48 +747,6 @@ public struct AssetsAndAccountDetailView: View {
                 .accessibilityHint(MimiL10n.string("返回账户列表，不会退出到记账首页"))
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            accountDetailAskBar(for: liveAccount)
-        }
-    }
-
-    private func accountDetailAskBar(for account: AccountItem) -> some View {
-        HStack(spacing: 10) {
-            Button {
-                dispatch(.openEntry(.expense(accountName: account.name)))
-            } label: {
-                HStack(spacing: 8) {
-                    MimiAskMascotView(size: 32)
-                    Text("任何事情都能问我", bundle: .mimiModule)
-                        .mimiFont(13, weight: .medium)
-                        .foregroundColor(MimiTheme.textMuted)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .frame(minHeight: MimiHIG.minTouch)
-                .background(Capsule().fill(MimiTheme.cardBackground))
-                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
-            }
-            .mimiPressable()
-            .accessibilityLabel(MimiL10n.string("记账"))
-
-            Button {
-                dispatch(.openEntry(.expense(accountName: account.name)))
-            } label: {
-                Image(systemName: "plus")
-                    .mimiFont(16, weight: .bold)
-                    .foregroundColor(MimiTheme.textPrimary)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(MimiTheme.cardBackground))
-                    .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
-            }
-            .mimiPressable()
-            .accessibilityLabel(MimiL10n.string("记一笔"))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(MimiTheme.background.opacity(0.96).ignoresSafeArea(edges: .bottom))
     }
 
     private func accountActionPill(title: String, systemName: String, action: @escaping () -> Void) -> some View {

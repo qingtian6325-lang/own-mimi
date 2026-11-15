@@ -153,20 +153,25 @@ public enum MimiKapiXLSXService {
     }
 
     private static func cellString(_ cell: Cell, sharedStrings: SharedStrings?) -> String {
-        if let shared = sharedStrings {
+        if cell.type == .sharedString {
+            guard let shared = sharedStrings else { return "" }
             if let s = cell.stringValue(shared), !s.isEmpty {
                 return s
             }
-            if cell.type == .sharedString,
-               let index = cell.value.flatMap(Int.init),
+            if let index = cell.value.flatMap(Int.init),
                shared.items.indices.contains(index) {
                 let item = shared.items[index]
                 if let t = item.text, !t.isEmpty { return t }
                 let rich = item.richText.compactMap(\.text).joined()
                 if !rich.isEmpty { return rich }
             }
+            // Shared string entry is legitimately empty (<si><t/></si>); never return cell.value (which is the SST index like "18").
+            return ""
         }
-        if let inline = cell.inlineString?.text, !inline.isEmpty {
+        if let shared = sharedStrings, let s = cell.stringValue(shared), !s.isEmpty {
+            return s
+        }
+        if let inline = cell.inlineString?.text {
             return inline
         }
         return cell.value ?? ""

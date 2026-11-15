@@ -372,8 +372,15 @@ public struct BillDetailSheetView: View {
                             Divider().padding(.leading, 16)
 
                             detailRow(label: "标签") {
+                                let availableTags: [String] = {
+                                    var result = store.tags
+                                    for t in editableBill.tags where !result.contains(t) && t != "待报销" {
+                                        result.append(t)
+                                    }
+                                    return result
+                                }()
                                 Menu {
-                                    ForEach(store.tags, id: \.self) { tag in
+                                    ForEach(availableTags, id: \.self) { tag in
                                         Button {
                                             if editableBill.tags.contains(tag) {
                                                 editableBill.tags.removeAll { $0 == tag }
@@ -386,6 +393,14 @@ public struct BillDetailSheetView: View {
                                             } else {
                                                 Text(tag)
                                             }
+                                        }
+                                    }
+                                    if !editableBill.tags.isEmpty {
+                                        Divider()
+                                        Button(role: .destructive) {
+                                            editableBill.tags.removeAll()
+                                        } label: {
+                                            Label(MimiL10n.string("清空标签"), systemImage: "trash")
                                         }
                                     }
                                 } label: {

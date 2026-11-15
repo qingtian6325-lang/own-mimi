@@ -461,7 +461,7 @@ public struct HomeRecordView: View {
 
             if isCategoryBudgetExpanded {
                 VStack(spacing: 10) {
-                    ForEach(store.categoryBudgets) { item in
+                    ForEach(store.sortedCategoryBudgets(in: currentPeriod)) { item in
                         let spent = store.categorySpent(for: item.categoryName, in: currentPeriod)
                         let rem = item.monthlyLimit - spent
                         let ratio = item.monthlyLimit > 0 ? min(1.0, spent / item.monthlyLimit) : 0
