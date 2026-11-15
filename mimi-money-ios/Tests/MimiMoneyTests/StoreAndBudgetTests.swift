@@ -394,10 +394,10 @@ final class StoreAndBudgetTests: XCTestCase {
         // - Category B: budget 200, spent 190 -> 95%
         // - Category C: budget 100, spent 20 -> 20%
         // Expected order: Category B (95%), Category A (80%), Category C (20%)
-        let budgets = [
-            CategoryBudgetItem(id: "cat_a", categoryName: "餐饮", iconName: "food", monthlyLimit: 100),
-            CategoryBudgetItem(id: "cat_b", categoryName: "购物", iconName: "bag", monthlyLimit: 200),
-            CategoryBudgetItem(id: "cat_c", categoryName: "交通", iconName: "car", monthlyLimit: 100)
+        let budgets: [CategoryBudgetItem] = [
+            CategoryBudgetItem(id: "cat_a", categoryId: "exp_餐饮", categoryName: "餐饮", iconName: "food", monthlyLimit: 100, sortOrder: 0),
+            CategoryBudgetItem(id: "cat_b", categoryId: "exp_购物", categoryName: "购物", iconName: "bag", monthlyLimit: 200, sortOrder: 1),
+            CategoryBudgetItem(id: "cat_c", categoryId: "exp_交通", categoryName: "交通", iconName: "car", monthlyLimit: 100, sortOrder: 2)
         ]
         let spentMap: [String: Double] = [
             "餐饮": 80,
@@ -407,20 +407,22 @@ final class StoreAndBudgetTests: XCTestCase {
         let sorted = MimiStore.sortCategoryBudgetsByUsageRatio(budgets) { category in
             spentMap[category] ?? 0
         }
-        XCTAssertEqual(sorted.map(\.categoryName), ["购物", "餐饮", "交通"])
+        XCTAssertEqual(sorted.map { $0.categoryName }, ["购物", "餐饮", "交通"])
 
         // Also verify via store.sortedCategoryBudgets(in:)
         let store = MimiStore(inMemory: true)
         store.resetToCleanEmpty()
-        store.categoryBudgets = budgets
+        var ledger = store.currentLedger
+        ledger.categoryBudgets = budgets
+        store.currentLedger = ledger
         let now = Date()
         store.addTransaction(TransactionItem(type: .expense, categoryPath: "餐饮-午餐", amount: 80, accountName: "TNGewallet", date: now))
         store.addTransaction(TransactionItem(type: .expense, categoryPath: "购物-日用", amount: 190, accountName: "TNGewallet", date: now))
         store.addTransaction(TransactionItem(type: .expense, categoryPath: "交通-打车", amount: 20, accountName: "TNGewallet", date: now))
 
-        let period = store.currentBillingPeriod(for: now)
+        let period = store.currentBillingPeriod(now: now)
         let storeSorted = store.sortedCategoryBudgets(in: period)
-        XCTAssertEqual(storeSorted.map(\.categoryName), ["购物", "餐饮", "交通"])
+        XCTAssertEqual(storeSorted.map { $0.categoryName }, ["购物", "餐饮", "交通"])
     }
 
     func testTagRenameDeleteAndSharedString18ArtifactSanitization() {
