@@ -57,11 +57,11 @@ public struct HomeRecordView: View {
     }
 
     private var currentYear: Int {
-        Calendar(identifier: .gregorian).component(.year, from: currentPeriod.start)
+        MimiCalendar.gregorian.component(.year, from: currentPeriod.start)
     }
 
     private var currentMonth: Int {
-        Calendar(identifier: .gregorian).component(.month, from: currentPeriod.start)
+        MimiCalendar.gregorian.component(.month, from: currentPeriod.start)
     }
 
     private var monthlySpent: Double {
@@ -321,6 +321,7 @@ public struct HomeRecordView: View {
             x: 0,
             y: MimiTheme.homeCardShadowY
         )
+        .compositingGroup()
         .overlay(alignment: .topTrailing) {
             incomeExpensePill
                 .padding(.trailing, 12)
@@ -575,6 +576,7 @@ public struct HomeRecordView: View {
             RoundedRectangle(cornerRadius: MimiTheme.cardCornerRadius, style: .continuous)
                 .fill(MimiTheme.netWorthCard)
         )
+        .compositingGroup()
     }
 
     private func toggleNetWorthExpanded() {
@@ -664,6 +666,7 @@ public struct HomeRecordView: View {
             RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                 .fill(MimiTheme.cardBackground)
         )
+        .compositingGroup()
         .animation(MimiMotion.quick(reduceMotion: reduceMotion), value: revealedDeleteID)
     }
 
@@ -876,7 +879,7 @@ public struct HomeRecordView: View {
     }
 
     private func formatDayHeader(_ date: Date) -> String {
-        let cal = Calendar(identifier: .gregorian)
+        let cal = MimiCalendar.gregorian
         let m = cal.component(.month, from: date)
         let d = cal.component(.day, from: date)
         let weekday = cal.component(.weekday, from: date)

@@ -79,6 +79,9 @@ public struct MimiRootContainerView: View {
                     pushOpen { activeSettingsTitle = DrawerDestination.importExport.rawValue }
                 }
             )
+            .allowsHitTesting(!isAnyFeaturePageOpen)
+            .accessibilityHidden(isAnyFeaturePageOpen)
+            .compositingGroup()
 
             // Top floating Shortcut Snippet Overlay when triggered via URL / Quick-Scan
             if let snippetBill = store.pendingShortcutSnippetBill {
@@ -480,6 +483,10 @@ public struct MimiRootContainerView: View {
             }
         }
         #endif
+    }
+
+    private var isAnyFeaturePageOpen: Bool {
+        showStatsView || showAllRecordsCalendar || showAssetsManager || showBudgetManager || showCategoryManager || activeSettingsTitle != nil
     }
 
     private var pageHandoffDelay: TimeInterval {

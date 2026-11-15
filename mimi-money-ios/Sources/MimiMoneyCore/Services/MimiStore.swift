@@ -1210,7 +1210,7 @@ public final class MimiStore: ObservableObject {
         if let cached = cachedGroupedTransactions {
             return cached
         }
-        let cal = Calendar(identifier: .gregorian)
+        let cal = MimiCalendar.gregorian
         let filtered = transactions.filter { $0.ledgerId == currentLedgerId }
         var buckets: [Date: [TransactionItem]] = [:]
         for tx in filtered {

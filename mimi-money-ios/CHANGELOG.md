@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.22] - 2026-11-15
+
+### 🎯 Highlights
+- **全局 Calendar 单例复用 (`MimiCalendar`)**：新增全局单例公用公历对象，消除界面每次重绘与组件中散落的 40+ 处临时高开销 Calendar 内存分配。
+- **GPU 离屏渲染与阴影分组优化 (`compositingGroup`)**：对首页预算卡、资产卡、账单卡片与贴纸图标应用离屏合成组，避免长列表滚动时 GPU 重复离屏渲染走道。
+- **全屏覆盖页打开时挂起底层首页**：当统计、日历、资产等全屏子页面打开时，挂起底层首页的点击与无障碍树，降低双层重绘开销。
+- **发版**：`VERSION` / Intent 默认版本升至 1.3.22。
+
 ## [v1.3.21] - 2026-11-15
 
 ### 🎯 Highlights

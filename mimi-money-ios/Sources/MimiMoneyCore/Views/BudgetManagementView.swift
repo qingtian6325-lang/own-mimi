@@ -52,10 +52,10 @@ public struct BudgetManagementView: View {
     private var currentPeriod: BillingPeriod { store.currentBillingPeriod() }
 
     private var currentYear: Int {
-        Calendar(identifier: .gregorian).component(.year, from: currentPeriod.start)
+        MimiCalendar.gregorian.component(.year, from: currentPeriod.start)
     }
     private var currentMonth: Int {
-        Calendar(identifier: .gregorian).component(.month, from: currentPeriod.start)
+        MimiCalendar.gregorian.component(.month, from: currentPeriod.start)
     }
 
     private var monthlySpent: Double {

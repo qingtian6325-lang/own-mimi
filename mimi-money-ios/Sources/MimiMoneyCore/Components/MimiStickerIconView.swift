@@ -80,6 +80,7 @@ public struct MimiStickerIconView: View {
 
                 MimiStickerGlyphView(kind: spec.glyph, systemName: spec.systemName, size: size * 0.58)
             }
+            .compositingGroup()
             .overlay(
                 Circle()
                     .strokeBorder(
