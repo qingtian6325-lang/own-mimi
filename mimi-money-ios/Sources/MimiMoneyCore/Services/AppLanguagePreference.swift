@@ -33,7 +33,7 @@ public enum AppLanguagePreference: String, CaseIterable, Identifiable, Sendable 
 public final class AppLanguageStore: ObservableObject {
     public static let shared = AppLanguageStore()
 
-    public static let storageKey = "mimi_app_language_preference"
+    public nonisolated static let storageKey = "mimi_app_language_preference"
 
     private let defaults: UserDefaults
 
