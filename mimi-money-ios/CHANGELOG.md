@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.25] - 2026-11-16
+
+### 🎯 Highlights
+- **快捷指令按「Got it」与向上划走（Swipe Up）均 100% 自动记账**：重构 `ScanScreenshotIntent`，AI 识别成功后立即将账单正式落盘入账，无论用户点击「Got it」还是直接手势向上划走横幅卡片，账单都已 100% 自动记录并扣减对应账户余额；若点击「View」则直接跳转打开该笔已入账账单的详情编辑页。
+- **彻底解决灵动岛（Dynamic Island）快捷指令图标挂起残留问题**：将 iOS 26 `requestChoice` 的「Got it」选项标记为 `.cancel` 样式，并移除 `ScanScreenshotIntent` 多余的 `OpensIntent` 链式跳转；手势向上划走卡片或点击「Got it」时系统直接关闭横幅并立即结束快捷指令，不再缩回灵动岛挂起等待。
+- **跨进程与前后台无缝同步（`reloadFromDisk` + 遗留暂存自动恢复）**：App 进入前台（`scenePhase == .active`）或打开时自动从磁盘重载最新账单并恢复任何历史未消费暂存项，确保后台快捷指令记账后切回 App 秒级显示。
+- **开通「自动记账」一键导入专属指令与剪贴板直接入账**：内置用户分享的 iCloud 快捷指令链接（点击「添加专属指令」一键导入），同时将「无需快捷指令 · 读取剪贴板截图」升级为识别后直接自动入账。
+- **发版**：`VERSION` / Intent 默认版本升至 1.3.25。
+
 ## [v1.3.24] - 2026-11-15
 
 ### 🎯 Highlights

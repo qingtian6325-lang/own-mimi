@@ -81,9 +81,7 @@ public enum ScanChoicePlan {
 @MainActor
 public enum ShortcutActionCoordinator {
     /// 「添加专属指令」一键导入链接（iCloud 快捷指令分享链接，形如 https://www.icloud.com/shortcuts/xxxx）。
-    /// 该链接只能由登录 iCloud 的设备在「快捷指令」App 内通过「共享 → 拷贝 iCloud 链接」生成，
-    /// 服务器端无法伪造；在用户提供链接之前保持 nil，指南页的「添加专属指令」按钮将展开手动搭建教程。
-    public static let shortcutInstallURL: String? = nil
+    public static let shortcutInstallURL: String? = "https://www.icloud.com/shortcuts/6c6c112911434258b8c9fc8da452194f"
 
     /// 把识别草稿构建为 TransactionItem（含收据图保存），但不落盘。
     public static func makeTransaction(from draft: ParsedDraftBill, in store: MimiStore, isConfirmed: Bool) -> TransactionItem {
@@ -755,14 +753,21 @@ public struct ScanScreenshotIntent: AppIntent {
     @Parameter(title: "类型", default: 2)
     public var type: Int?
 
-    @Parameter(title: "版本", default: "1.3.24")
+    @Parameter(title: "版本", default: "1.3.25")
     public var version: String?
 
     public init() {}
 
+    @available(iOS 26.0, macOS 26.0, *)
+    public static var supportedModes: IntentModes {
+        [.background, .foreground(.dynamic)]
+    }
+
     @MainActor
-    public func perform() async throws -> some IntentResult & OpensIntent {
+    public func perform() async throws -> some IntentResult {
         let store = MimiStore.shared
+        store.reloadFromDisk()
+        _ = store.finalizeAllPendingScans()
         // v1.2.1：识别改纯 AI（Gemini），彻底移除 OCR，不再有任何兜底凑数。
         // 识别失败直接抛 ReceiptRecognitionFailure（LocalizedError），捷徑会
         // 把失败原因弹给用户看；失败时不暂存、不落账、不弹识别卡。
@@ -787,96 +792,65 @@ public struct ScanScreenshotIntent: AppIntent {
         let recognition = try await SmartReceiptRecognizer.recognize(imageData: imageData)
         let draft = recognition.draft
         let amountIsSuspicious = recognition.isSuspiciousAmount
-        // 呈现分层（v1.1.4）：
-        // - iOS 26+：requestChoice 选项卡探针（见 performScanChoice）。前几版已
-        //   证实：结果型 snippet 底部必带系统 Done、确认型必带 Cancel＋主钮一对
-        //   且 Cancel 删不掉（HIG 解剖图＋ConfirmationActionName 官方 API），
-        //   requestChoice 是唯一未被官方排除的呈现——卡面＋两个完全自定的选项，
-        //   选中后回到 perform 继续。它的实际长相只能真机定案。
-        // - iOS 18–25 / 17：保持 v1.1.2/1.1.3 的确认型流程，行为一行不改：
-        //   识别结果先暂存（不落盘）→ requestConfirmation 弹确认卡（按钮对
-        //   改名为 View / Got it）→ 点 Got it 才正式落盘；点 View/下滑走
-        //   catch 分支转未确认记录并前台打开 App；其他错误作废暂存。
-        //
-        // 全部出口统一返回 IntentResult & OpensIntent，且 opensIntent 只指向
-        // 单一目标 ScanChoiceFollowUpIntent（用 opensEditor 参数区分动作）：
-        // 同一 perform 里混用普通 .result()、或指向不同 Intent 的 opensIntent，
-        // 都会让不透明返回类型对不上而编译失败（#OpaqueTypeInference，
-        // v1.1.3 两次 CI 实证）。旧系统路径的收尾动作仍在 perform 内完成，
-        // 返回的 opensIntent 只是无操作占位，行为与 v1.1.3 的空 .result() 等价。
-        let staged = ShortcutActionCoordinator.stageRecognizedDraft(draft, in: store)
         if amountIsSuspicious {
             // 金额合理性拦截：金额 <=0、离谱大额或与状态栏电量百分比同值等明显误读，
             // 只进未确认口径 — 暂存转未确认记录等用户在 App 里核对修改，
             // 不走正常入账呈现（不弹选项卡/确认卡）。
+            let staged = ShortcutActionCoordinator.stageRecognizedDraft(draft, in: store)
             _ = ShortcutActionCoordinator.consumePendingScanForEdit(id: staged.id, in: store)
-            return .result(opensIntent: ScanChoiceFollowUpIntent(opensEditor: false, transactionId: staged.id))
+            return .result()
         }
+        // v1.3.25：识别成功后立即正式落盘入账！
+        // 无论用户点击「Got it」还是直接向上划走卡片（或切走），账单都 100% 已经自动记录；
+        // 若用户点击「View」，则直接定位到这笔已入账账单的详情编辑页。
+        // 同时移除多余的 OpensIntent 链式跳转，避免捷徑在灵动岛挂起残留。
+        let saved = ShortcutActionCoordinator.recordRecognizedDraft(draft, in: store)
         if #available(iOS 26.0, macOS 26.0, *) {
-            return try await performScanChoice(staged: staged, store: store)
+            return try await performScanChoice(saved: saved, store: store)
         }
         do {
-            try await requestScanConfirmation(for: staged)
+            try await requestScanConfirmation(for: saved)
         } catch {
-            switch ScanConfirmationFollowUp.followUp(for: error) {
-            case .openEditor:
-                _ = ShortcutActionCoordinator.consumePendingScanForEdit(id: staged.id, in: store)
+            if ScanConfirmationFollowUp.followUp(for: error) == .openEditor {
+                _ = ShortcutActionCoordinator.markForInAppModification(transactionId: saved.id, in: store)
                 if #available(iOS 17.0, macOS 14.0, *) {
-                    // 前台打开失败（系统拒绝/用户取消）也不要抛错：记录已安全
-                    // 转为未确认并标记定位，用户手动打开 App 也会直达编辑页。
                     try? await requestToContinueInForeground(
                         IntentDialog("打开「咪咪记账」修改这笔账单")
                     ) { }
+                    _ = ShortcutActionCoordinator.markForInAppModification(transactionId: saved.id, in: store)
                 }
-                return .result(opensIntent: ScanChoiceFollowUpIntent(opensEditor: false, transactionId: staged.id))
-            case .discard:
-                store.discardPendingScan(id: staged.id)
-                return .result(opensIntent: ScanChoiceFollowUpIntent(opensEditor: false, transactionId: staged.id))
             }
+            return .result()
         }
-        _ = ShortcutActionCoordinator.finalizePendingScan(id: staged.id, in: store)
-        return .result(opensIntent: ScanChoiceFollowUpIntent(opensEditor: false, transactionId: staged.id))
+        return .result()
     }
 
-    /// iOS 26 选项卡呈现（v1.1.4 探针）：requestChoice 弹「纯账单卡（view)＋
-    /// 提示文案（dialog)」与两个系统渲染的自定选项 View / Got it，选中后
-    /// 回到这里继续。选项不加 .cancel：取消/下滑时 requestChoice 抛错，
-    /// catch 里先作废暂存、再以同一返回形状安静收尾——官方指引是不要
-    /// catch 取消错误，这里 catch 的唯一目的是在终止前作废暂存，随后
-    /// 返回的仍是无呈现、无落盘、不开 App 的结果，与直接终止等价。
-    /// - 选 View：不在 perform 里消费暂存，opensIntent 交给
-    ///   ScanChoiceFollowUpIntent 消费暂存并打开 App 到编辑页。
-    /// - 选 Got it：先在 perform 里正式落盘，再 opensIntent 一个无操作
-    ///   后续，静默结束回原 App。
-    /// requestChoice 返回的必是给出的两个选项之一（Equatable 比对），
-    /// 非 View 即 Got it。
+    /// iOS 26 选项卡呈现（v1.3.25）：
+    /// - 账单在弹卡前已正式落盘（saved）。
+    /// - Got it 设为 `.cancel` 样式：用户点 Got it 或手势向上划走卡片时，系统直接按取消/关闭处理并立即结束捷徑，不会缩进灵动岛挂起等待选择。
+    /// - 用户点 View：直接在本 Intent 内调用 `continueInForeground(alwaysConfirm: false)` 拉起 App 进入该笔账单编辑页。
     @available(iOS 26.0, macOS 26.0, *)
     @MainActor
-    private func performScanChoice(staged: TransactionItem, store: MimiStore) async throws -> some IntentResult & OpensIntent {
-        // 选项文案与 ScanChoicePlan 的常量是同一组字面量，两处保持一致。
-        // Style 只有 .default / .destructive / .cancel，没有主样式，
-        // 故两个选项都不带 style（默认 .default），排版与颜色由系统决定。
-        let viewOption = IntentChoiceOption(title: "View")
-        let gotItOption = IntentChoiceOption(title: "Got it")
+    private func performScanChoice(saved: TransactionItem, store: MimiStore) async throws -> some IntentResult {
+        let viewOption = IntentChoiceOption(title: ScanChoicePlan.viewOptionTitle)
+        let gotItOption = IntentChoiceOption(title: ScanChoicePlan.gotItOptionTitle, style: .cancel)
         let choice: IntentChoiceOption
         do {
             choice = try await requestChoice(
                 between: [viewOption, gotItOption],
                 dialog: "\(ScanChoicePlan.promptText)",
-                view: ScanChoiceCardView(transaction: staged)
+                view: ScanChoiceCardView(transaction: saved)
             )
         } catch {
-            store.discardPendingScan(id: staged.id)
-            return .result(opensIntent: ScanChoiceFollowUpIntent(opensEditor: false, transactionId: staged.id))
+            return .result()
         }
         let pick: ScanChoicePick = (choice == viewOption) ? .view : .gotIt
-        if ScanChoicePlan.finalizesInPerform(for: pick) {
-            _ = ShortcutActionCoordinator.finalizePendingScan(id: staged.id, in: store)
+        if ScanChoicePlan.opensEditor(for: pick) {
+            _ = ShortcutActionCoordinator.markForInAppModification(transactionId: saved.id, in: store)
+            try? await continueInForeground(alwaysConfirm: false)
+            _ = ShortcutActionCoordinator.markForInAppModification(transactionId: saved.id, in: store)
         }
-        return .result(opensIntent: ScanChoiceFollowUpIntent(
-            opensEditor: ScanChoicePlan.opensEditor(for: pick),
-            transactionId: staged.id
-        ))
+        return .result()
     }
 
     /// 按系统版本分层弹确认卡，按钮文案统一改名为 View / Got it（与 Kapi 一致）：

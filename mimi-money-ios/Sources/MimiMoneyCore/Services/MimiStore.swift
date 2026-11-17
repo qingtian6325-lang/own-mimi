@@ -79,7 +79,18 @@ public final class MimiStore: ObservableObject {
     @Published public var expenseCategories: [CategoryGroup]
     @Published public var incomeCategories: [CategoryGroup]
     @Published public var tags: [String]
-    @Published public var pendingEditTransactionId: UUID?
+    private static let pendingEditDefaultsKey = "mimi.pending_edit_transaction_id_v1"
+
+    @Published public var pendingEditTransactionId: UUID? {
+        didSet {
+            guard !inMemory else { return }
+            if let id = pendingEditTransactionId {
+                UserDefaults.standard.set(id.uuidString, forKey: Self.pendingEditDefaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.pendingEditDefaultsKey)
+            }
+        }
+    }
     @Published public var pendingShortcutSnippetBill: TransactionItem?
     @Published public var pendingScanTransactions: [TransactionItem] = []
     @Published public var isRecordSheetPresented: Bool = false
@@ -284,10 +295,15 @@ public final class MimiStore: ObservableObject {
             self.hasCompletedOnboarding = empty.hasCompletedOnboarding
             self.reimbursableAmount = 0.00
         }
-        if !inMemory,
-           let data = try? Data(contentsOf: pendingScansURL),
-           let decoded = try? JSONDecoder().decode([TransactionItem].self, from: data) {
-            self.pendingScanTransactions = decoded
+        if !inMemory {
+            if let data = try? Data(contentsOf: pendingScansURL),
+               let decoded = try? JSONDecoder().decode([TransactionItem].self, from: data) {
+                self.pendingScanTransactions = decoded
+            }
+            if let rawEditId = UserDefaults.standard.string(forKey: Self.pendingEditDefaultsKey),
+               let uuid = UUID(uuidString: rawEditId) {
+                self.pendingEditTransactionId = uuid
+            }
         }
         sanitizeImportedSharedStringArtifacts()
         DefaultCatalog.syncLiveAccounts(accounts)
@@ -1488,9 +1504,32 @@ public final class MimiStore: ObservableObject {
            let pendingDecoded = try? JSONDecoder().decode([TransactionItem].self, from: pendingData) {
             pendingScanTransactions = pendingDecoded
         }
+        if let rawEditId = UserDefaults.standard.string(forKey: Self.pendingEditDefaultsKey),
+           let uuid = UUID(uuidString: rawEditId) {
+            pendingEditTransactionId = uuid
+        }
         sanitizeImportedSharedStringArtifacts()
         DefaultCatalog.syncLiveAccounts(accounts)
         recalculateAllAccountBalances()
+    }
+
+    /// Finalizes any leftover pending scans into confirmed transactions so no recognized
+    /// receipt can ever remain stranded in the staging area if a shortcut banner was swiped away.
+    @discardableResult
+    public func finalizeAllPendingScans() -> Int {
+        guard !pendingScanTransactions.isEmpty else { return 0 }
+        let items = pendingScanTransactions
+        pendingScanTransactions.removeAll()
+        savePendingScans()
+        var count = 0
+        for var item in items {
+            if !transactions.contains(where: { $0.id == item.id }) {
+                item.isConfirmed = true
+                addTransaction(item, at: item.date)
+                count += 1
+            }
+        }
+        return count
     }
 
     public func saveState() {

@@ -891,7 +891,7 @@ public struct SettingsAndShortcutsGuideView: View {
             }
             .mimiPressable()
 
-            // 无需快捷指令：读取剪贴板截图 → 预览卡确认后才入账
+            // 无需快捷指令：读取剪贴板截图 → 识别后直接入账
             Button {
                 #if canImport(UIKit)
                 if let image = UIPasteboard.general.image, let pngData = image.pngData() {
@@ -899,16 +899,19 @@ public struct SettingsAndShortcutsGuideView: View {
                         do {
                             let result = try await SmartReceiptRecognizer.recognize(imageData: pngData)
                             await MainActor.run {
-                                pendingClipboardDraft = result.draft
-                                simulatedSnippetTx = ShortcutActionCoordinator.makeTransaction(
-                                    from: result.draft,
-                                    in: store,
-                                    isConfirmed: false
-                                )
                                 if result.isSuspiciousAmount {
+                                    pendingClipboardDraft = result.draft
+                                    simulatedSnippetTx = ShortcutActionCoordinator.makeTransaction(
+                                        from: result.draft,
+                                        in: store,
+                                        isConfirmed: false
+                                    )
                                     statusBannerMessage = "已识别，但金额看起来不太对劲。请核对后点「确认」入账，或点「修改」编辑。"
                                 } else {
-                                    statusBannerMessage = "已识别剪贴板截图，请点卡片上的「确认」入账，或「修改」编辑。尚未记账。"
+                                    let saved = ShortcutActionCoordinator.recordRecognizedDraft(result.draft, in: store)
+                                    pendingClipboardDraft = nil
+                                    simulatedSnippetTx = saved
+                                    statusBannerMessage = "已识别并自动记账：\(saved.categoryPath) \(MimiTheme.formatRM(saved.amount))（如需调整可点下方「修改」）"
                                 }
                             }
                         } catch {
@@ -926,7 +929,7 @@ public struct SettingsAndShortcutsGuideView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "camera.viewfinder")
                         .mimiFont(14)
-                    Text("无需快捷指令 · 读取剪贴板截图（确认后入账）", bundle: .mimiModule)
+                    Text("无需快捷指令 · 读取剪贴板截图（直接入账）", bundle: .mimiModule)
                         .mimiFont(13, weight: .bold)
                 }
                 .foregroundColor(MimiTheme.incomeOrange)
@@ -954,18 +957,32 @@ public struct SettingsAndShortcutsGuideView: View {
             ScreenshotResultSnippetView(
                 transaction: previewTx,
                 onModifyTapped: {
-                    let draft = pendingClipboardDraft ?? Self.demoSampleDraft()
-                    let saved = ShortcutActionCoordinator.recordRecognizedDraft(draft, in: store)
-                    pendingClipboardDraft = nil
-                    _ = ShortcutActionCoordinator.markForInAppModification(transactionId: saved.id, in: store)
-                    onModifyTransactionFromPopup(saved)
+                    if let existing = simulatedSnippetTx,
+                       pendingClipboardDraft == nil,
+                       store.transactions.contains(where: { $0.id == existing.id }) {
+                        _ = ShortcutActionCoordinator.markForInAppModification(transactionId: existing.id, in: store)
+                        onModifyTransactionFromPopup(existing)
+                    } else {
+                        let draft = pendingClipboardDraft ?? Self.demoSampleDraft()
+                        let saved = ShortcutActionCoordinator.recordRecognizedDraft(draft, in: store)
+                        pendingClipboardDraft = nil
+                        simulatedSnippetTx = saved
+                        _ = ShortcutActionCoordinator.markForInAppModification(transactionId: saved.id, in: store)
+                        onModifyTransactionFromPopup(saved)
+                    }
                 },
                 onConfirmTapped: {
-                    let draft = pendingClipboardDraft ?? Self.demoSampleDraft()
-                    let saved = ShortcutActionCoordinator.recordRecognizedDraft(draft, in: store)
-                    pendingClipboardDraft = nil
-                    simulatedSnippetTx = saved
-                    statusBannerMessage = "已确认记账：\(saved.categoryPath) \(MimiTheme.formatRM(saved.amount))"
+                    if let existing = simulatedSnippetTx,
+                       pendingClipboardDraft == nil,
+                       store.transactions.contains(where: { $0.id == existing.id }) {
+                        statusBannerMessage = "已确认记账：\(existing.categoryPath) \(MimiTheme.formatRM(existing.amount))"
+                    } else {
+                        let draft = pendingClipboardDraft ?? Self.demoSampleDraft()
+                        let saved = ShortcutActionCoordinator.recordRecognizedDraft(draft, in: store)
+                        pendingClipboardDraft = nil
+                        simulatedSnippetTx = saved
+                        statusBannerMessage = "已确认记账：\(saved.categoryPath) \(MimiTheme.formatRM(saved.amount))"
+                    }
                 }
             )
         }

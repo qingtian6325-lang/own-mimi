@@ -5,6 +5,7 @@ public struct MimiRootContainerView: View {
     @StateObject private var aiEngine = MimiAIEngine()
     @EnvironmentObject private var languageStore: AppLanguageStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var currentMainPage: String = "记录"
     @State private var isDrawerOpen: Bool = false
@@ -414,6 +415,14 @@ public struct MimiRootContainerView: View {
             }
         }
         #endif
+        .onAppear {
+            syncFromShortcutIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                syncFromShortcutIfNeeded()
+            }
+        }
         .onChange(of: store.pendingEditTransactionId) { _, newId in
             if let id = newId,
                let match = store.transactions.first(where: { $0.id == id }) {
@@ -428,6 +437,8 @@ public struct MimiRootContainerView: View {
             }
         }
         .onOpenURL { url in
+            store.reloadFromDisk()
+            _ = store.finalizeAllPendingScans()
             if ShortcutActionCoordinator.handleIncomingURL(url, in: store),
                let id = store.pendingEditTransactionId,
                let match = store.transactions.first(where: { $0.id == id }) {
@@ -467,6 +478,15 @@ public struct MimiRootContainerView: View {
             }
         }
         #endif
+    }
+
+    private func syncFromShortcutIfNeeded() {
+        store.reloadFromDisk()
+        _ = store.finalizeAllPendingScans()
+        if let id = store.pendingEditTransactionId,
+           let match = store.transactions.first(where: { $0.id == id }) {
+            activeBillForEdit = match
+        }
     }
 
     private var isAnyFeaturePageOpen: Bool {

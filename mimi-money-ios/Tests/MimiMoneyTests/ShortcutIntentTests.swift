@@ -173,4 +173,24 @@ final class ShortcutIntentTests: XCTestCase {
         XCTAssertNil(store.pendingShortcutSnippetBill)
         XCTAssertTrue(store.isRecordSheetPresented)
     }
+
+    func testShortcutInstallURLIsConfigured() {
+        XCTAssertEqual(
+            ShortcutActionCoordinator.shortcutInstallURL,
+            "https://www.icloud.com/shortcuts/6c6c112911434258b8c9fc8da452194f"
+        )
+    }
+
+    func testFinalizeAllPendingScansRecoversStrandedScans() {
+        let store = MimiStore(inMemory: true)
+        let initialCount = store.transactions.count
+        let staged = ShortcutActionCoordinator.stageRecognizedDraft(sampleDraft(), in: store)
+        XCTAssertEqual(store.pendingScanTransactions.count, 1)
+
+        let recovered = store.finalizeAllPendingScans()
+        XCTAssertEqual(recovered, 1)
+        XCTAssertEqual(store.pendingScanTransactions.count, 0)
+        XCTAssertEqual(store.transactions.count, initialCount + 1)
+        XCTAssertEqual(store.transactions.first(where: { $0.id == staged.id })?.isConfirmed, true)
+    }
 }
