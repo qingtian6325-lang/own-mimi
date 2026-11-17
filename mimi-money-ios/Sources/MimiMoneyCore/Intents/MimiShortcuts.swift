@@ -832,8 +832,8 @@ public struct ScanScreenshotIntent: AppIntent {
     @available(iOS 26.0, macOS 26.0, *)
     @MainActor
     private func performScanChoice(saved: TransactionItem, store: MimiStore) async throws -> some IntentResult {
-        let viewOption = IntentChoiceOption(title: ScanChoicePlan.viewOptionTitle)
-        let gotItOption = IntentChoiceOption(title: ScanChoicePlan.gotItOptionTitle, style: .cancel)
+        let viewOption = IntentChoiceOption(title: "View")
+        let gotItOption = IntentChoiceOption(title: "Got it", style: .cancel)
         let choice: IntentChoiceOption
         do {
             choice = try await requestChoice(
